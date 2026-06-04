@@ -116,7 +116,9 @@
 #ifdef CONFIG_SILENT_REBOOT
 #include <tinyara/silent_reboot.h>
 #endif
-
+#if defined(CONFIG_DRIVERS_FLASH)
+#include <tinyara/flash_drv.h>
+#endif
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -296,6 +298,11 @@ static inline void os_do_appstart(void)
 #ifdef CONFIG_IOTDEV
 	iotbus_sig_register();
 #endif
+
+#if defined(CONFIG_DRIVERS_FLASH)
+	flash_register(FLASH_DEV_PATH, NULL, NULL);
+#endif
+
 
 #ifdef CONFIG_NET
 	/* Initialize the network system & Create network task if required */

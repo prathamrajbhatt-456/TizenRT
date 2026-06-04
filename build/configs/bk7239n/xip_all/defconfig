@@ -2,6 +2,8 @@
 # Automatically generated file; DO NOT EDIT.
 # TinyAra Configuration
 #
+CONFIG_EXAMPLES_SSTORAGE=y
+CONFIG_DRIVERS_FLASH=y
 
 #
 # Build Setup

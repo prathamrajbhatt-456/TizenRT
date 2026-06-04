@@ -30,19 +30,6 @@
  * Public Function Prototypes
  ****************************************************************************/
 
-extern int rtl_ss_flash_read(uint32_t address, uint32_t len, uint8_t *data, int en_display);
-extern void ns_flash_erase(uint32_t address);
-extern int rtl_verify_flash_protect(void);
-
-/****************************************************************************
- * Public Definitions
- ****************************************************************************/
-
-#define BOARD_SS_FLASH_READ rtl_ss_flash_read
-#define BOARD_FLASH_ERASE ns_flash_erase
-#define BOARD_VERIFY_FLASH_PROTECT rtl_verify_flash_protect
-#define BOARD_NAME "Ameba"
-
 #ifdef CONFIG_AMEBAD_TRUSTZONE
 static uint32_t SLOT0_START_ADDR = 0x1a000;
 static uint32_t SLOT1_START_ADDR = 0x1d000;

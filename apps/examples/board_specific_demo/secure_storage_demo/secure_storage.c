@@ -24,11 +24,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <security/security_common.h>
 #include <security/security_api.h>
 #include <tinyara/seclink.h>
 #include <tinyara/security_hal.h>
 #include <security/security_ss.h>
+#include <tinyara/flash_drv.h>
 
 #define TAG_LENGTH		16
 #define DATA_LENGTH		4
@@ -44,6 +46,7 @@
 
 static char rwbuf[MAX_SS_SIZE];
 static uint32_t SLOT_SIZE = 0x1000;
+static int g_flash_fd = -1;
 
 static int check_flash_data_empty(uint8_t *data, uint32_t length)
 {
@@ -57,12 +60,25 @@ static int check_flash_data_empty(uint8_t *data, uint32_t length)
 
 static void read_flash_data(const char *label, int slot_index, uint32_t address, uint32_t length)
 {
+	struct flash_io_s io;
+	int ret;
+
 	printf("\nStart Flash Raw data read!!\n");
 	printf("\nRead Raw data from Slot: %d, %s\n", slot_index, label);
-	if (BOARD_SS_FLASH_READ(address, length, (uint8_t *)rwbuf, 1)) {
+
+	/* Initialize flash_io_s structure with 4 values - en_display was 1 in original BOARD_SS_FLASH_READ */
+	io.address = address;
+	io.len = length;
+	io.data = (uint8_t *)rwbuf;
+	io.en_display = 1;
+
+	/* Use ioctl FLASHIOC_READ command */
+	ret = ioctl(g_flash_fd, FLASHIOC_READ, (unsigned long)&io);
+	if (ret < 0) {
 		printf("Board-specific flash read failed, %d\n", __LINE__);
+	} else {
+		printf("Read complete\n");
 	}
-	printf("Read complete\n");
 }
 
 static void read_ss(security_handle hnd, const char *ss_path, uint32_t slot_index)
@@ -135,6 +151,8 @@ int sstorage_main(int argc, char *argv[])
 	int empty;
 	int flash_protected;
 	int option;
+	struct flash_io_s io;
+	int ret;
 
 	while ((option = getopt(argc, argv, "d:s:h")) > 0) {
 		switch (option) {
@@ -154,7 +172,6 @@ int sstorage_main(int argc, char *argv[])
 		}
 	}
 
-	printf("Start testing SE Secure Storage for %s!!\n", BOARD_NAME);
 	printf("Data: %2x, slot: %u\n", input_data, slot_index);
 
 	/* 1. Initialize security */
@@ -169,6 +186,12 @@ int sstorage_main(int argc, char *argv[])
 
 	/* Form the SS path name based on the slot index where we want to read and write */
 	snprintf(ss_path, 7, "ss/%u", slot_index);
+
+	/* Open flash device for read/write operations */
+	g_flash_fd = open(FLASH_DEV_PATH, O_RDWR);
+	if (g_flash_fd < 0) {
+		printf("Failed to open flash device\n");
+	}
 
 	/* 2. Read Secure Storage flash data before perform write */
 	printf("Let us read once before writing to the slot\n");
@@ -198,21 +221,61 @@ int sstorage_main(int argc, char *argv[])
 	area_b_empty = check_flash_data_empty((uint8_t *)rwbuf, length);
 
 	printf("\n ***** Start Verify Secure Storage Area Protected.***** \n");
-	/* 7. Retrieve the Flash Status Bit */
-	flash_protected = BOARD_VERIFY_FLASH_PROTECT();
+
+	/* 7. Verify flash protection status using ioctl */
+	if (g_flash_fd >= 0) {
+		ret = ioctl(g_flash_fd, FLASHIOC_VERIFY_PROTECT, (unsigned long)&flash_protected);
+		if (ret < 0) {
+			printf("Failed to verify flash protection status\n");
+			flash_protected = 0;
+		}
+	} else {
+		flash_protected = 0;
+	}
 
 	/* 8. Erase the existing data Area and Read flash raw data to verify the protection status */
 	empty = check_flash_data_empty((uint8_t *)rwbuf, length);
-	if (!area_a_empty) {
-		printf("\nErase Area A where data existed.\n");
-		BOARD_FLASH_ERASE(address);
-		read_flash_data("Area A", slot_index, address, length);
-		empty = check_flash_data_empty((uint8_t *)rwbuf, length);
-	} else if (!area_b_empty) {
-		printf("\nErase Area B where data existed.\n");
-		BOARD_FLASH_ERASE(address + SLOT_AREA_OFFSET);
-		read_flash_data("Area B", slot_index, address + SLOT_AREA_OFFSET, length);
-		empty = check_flash_data_empty((uint8_t *)rwbuf, length);
+	if (g_flash_fd >= 0) {
+		if (!area_a_empty) {
+			printf("\nErase Area A where data existed.\n");
+			
+			/* Initialize flash_io_s structure for erase */
+			io.address = address;
+			io.len = length;
+			io.data = NULL;
+			
+			/* Use ioctl FLASHIOC_ERASE command */
+			ret = ioctl(g_flash_fd, FLASHIOC_ERASE, (unsigned long)&io);
+			if (ret < 0) {
+				printf("Erase failed (expected if protected)\n");
+				flash_protected = 1;
+			} else {
+				flash_protected = 0;
+			}
+			read_flash_data("Area A", slot_index, address, length);
+			empty = check_flash_data_empty((uint8_t *)rwbuf, length);
+		} else if (!area_b_empty) {
+			printf("\nErase Area B where data existed.\n");
+			
+			/* Initialize flash_io_s structure for erase */
+			io.address = address + SLOT_AREA_OFFSET;
+			io.len = length;
+			io.data = NULL;
+			
+			/* Use ioctl FLASHIOC_ERASE command */
+			ret = ioctl(g_flash_fd, FLASHIOC_ERASE, (unsigned long)&io);
+			if (ret < 0) {
+				printf("Erase failed (expected if protected)\n");
+				flash_protected = 1;
+			} else {
+				flash_protected = 0;
+			}
+			read_flash_data("Area B", slot_index, address + SLOT_AREA_OFFSET, length);
+			empty = check_flash_data_empty((uint8_t *)rwbuf, length);
+		}
+
+		/* Close flash device */
+		close(g_flash_fd);
 	}
 
 	if (flash_protected) {

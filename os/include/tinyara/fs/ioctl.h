@@ -108,7 +108,16 @@
 #define _MIPIDSIBASE    (0x3900) 	/* Mipidsi device ioctl commands */
 #define _CSIIOCBASE     (0x3a00) 	/* Wifi CSI ioctl commands */
 #define _SILENTRBCBASE  (0x3b00) 	/* Silent reboot ioctl commands */
+#define _FLASHBASE      (0x3c00) 	/* Flash driver ioctl commands */
 
+/* Flash driver ioctl definitions */
+#define _FLASHIOCVALID(c) (_IOC_TYPE(c) == _FLASHBASE)
+#define _FLASHIOC(nr)     _IOC(_FLASHBASE, nr)
+
+#define FLASHIOC_READ        _FLASHIOC(0x0001)
+#define FLASHIOC_WRITE       _FLASHIOC(0x0002)
+#define FLASHIOC_ERASE       _FLASHIOC(0x0003)
+#define FLASHIOC_VERIFY_PROTECT _FLASHIOC(0x0004)
 
 /* boardctl() commands share the same number space */
 #define _BOARDBASE      (0xff00)	/* boardctl commands */
