@@ -63,6 +63,9 @@
 
 #include <tinyara/fs/mksmartfs.h>
 #include <tinyara/board.h>
+#ifdef CONFIG_SYSLOG_FILE
+#include <tinyara/syslog/syslog_dev.h>
+#endif
 #ifdef CONFIG_FLASH_PARTITION
 #include <tinyara/fs/mtd.h>
 #endif
@@ -337,6 +340,11 @@ void board_initialize(void)
 	board_gpio_initialize();
 
 	armino_mount_partitions();
+
+#ifdef CONFIG_SYSLOG_FILE
+	/* Initialize syslog character device for ioctl-based control */
+	syslog_devinitialize();
+#endif
 #ifdef CONFIG_I2C
 	board_i2c_initialize();
 #endif

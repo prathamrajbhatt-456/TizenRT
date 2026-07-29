@@ -66,6 +66,9 @@
 #ifdef CONFIG_BINARY_MANAGER
 #include <tinyara/binary_manager.h>
 #endif
+#ifdef CONFIG_SYSLOG_FILE
+#include <tinyara/syslog/syslog_dev.h>
+#endif
 #ifdef CONFIG_FLASH_PARTITION
 #include <tinyara/fs/mtd.h>
 #endif
@@ -430,6 +433,11 @@ void board_initialize(void)
 #ifndef CONFIG_PLATFORM_TIZENRT_OS
 	shell_init_rom(0, 0);
 #endif
+#ifdef CONFIG_SYSLOG_FILE
+	/* Initialize syslog character device for ioctl-based control */
+	syslog_devinitialize();
+#endif
+
 	board_spi_initialize();
 	amebasmart_mount_partitions();
 	board_gpio_initialize();

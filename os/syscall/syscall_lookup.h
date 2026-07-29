@@ -237,6 +237,7 @@ SYSCALL_LOOKUP(socket,                  3, STUB_socket)
 SYSCALL_LOOKUP(prctl,                   5, STUB_prctl)
 
 SYSCALL_LOOKUP(fin_wait,		0, STUB_fin_wait)
+SYSCALL_LOOKUP(syslog_putc,             1, STUB_syslog_putc)
 
 /****************************************************************************
  * Private Functions

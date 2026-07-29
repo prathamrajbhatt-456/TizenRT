@@ -58,6 +58,9 @@
 #include <assert.h>
 #include <errno.h>
 
+#include <tinyara/config.h>
+#include <tinyara/syslog/syslog.h>
+
 #include "lib_internal.h"
 
 /****************************************************************************
@@ -70,12 +73,13 @@
 
 static void stdoutstream_putc(FAR struct lib_outstream_s *this, int ch)
 {
+
 	FAR struct lib_stdoutstream_s *sthis = (FAR struct lib_stdoutstream_s *)this;
 	int result;
 
 	DEBUGASSERT(this && sthis->stream);
 
-	/* Loop until the character is successfully transferred or an irrecoverable
+	/* Loop until the character is transferred or an irrecoverable
 	 * error occurs.
 	 */
 
@@ -90,6 +94,7 @@ static void stdoutstream_putc(FAR struct lib_outstream_s *this, int ch)
 		 * recoverable error.
 		 */
 	} while (get_errno() == EINTR);
+
 }
 
 /****************************************************************************

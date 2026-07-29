@@ -125,6 +125,14 @@ struct syslog_dev_s {
 static struct syslog_dev_s g_sysdev;
 static const uint8_t g_syscrlf[2] = { '\r', '\n' };
 
+#ifdef CONFIG_SYSLOG_FILE
+/* File path for syslog file channel - set by syslog_file_channel() */
+FAR const char *g_syslog_file_path = NULL;
+
+/* Flag to track if syslog capture is active */
+static bool g_syslog_capturing = false;
+#endif
+
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
@@ -253,6 +261,7 @@ int syslog_initialize(void)
 {
 	FAR struct inode *inode;
 	FAR const char *relpath = NULL;
+	FAR const char *devpath;
 	int ret;
 
 	/* At this point, the only expected states are SYSLOG_UNINITIALIZED or
@@ -272,9 +281,17 @@ int syslog_initialize(void)
 	 * the thread-independent structures of the inode.
 	 */
 
+	/* Use file path if set by syslog_file_channel(), otherwise use CONFIG_SYSLOG_DEVPATH */
+
+#ifdef CONFIG_SYSLOG_FILE
+	devpath = g_syslog_file_path ? g_syslog_file_path : CONFIG_SYSLOG_DEVPATH;
+#else
+	devpath = CONFIG_SYSLOG_DEVPATH;
+#endif
+
 	/* Get an inode for this file/device */
 
-	inode = inode_find(CONFIG_SYSLOG_DEVPATH, &relpath);
+	inode = inode_find(devpath, &relpath);
 	if (!inode) {
 		/* The inode was not found.  In this case, we will attempt to re-open
 		 * the device repeatedly.  The assumption is that the device path is
@@ -358,6 +375,208 @@ errout_with_inode:
 	g_sysdev.sl_state = SYSLOG_FAILURE;
 	return ret;
 }
+
+/****************************************************************************
+ * Name: syslog_reopen
+ *
+ * Description:
+ *   Re-initialize syslog to use a new device path. This is used by
+ *   syslog_file_channel() to switch syslog output to a file after
+ *   the filesystem is mounted.
+ *
+ ****************************************************************************/
+
+#ifdef CONFIG_SYSLOG_FILE
+int syslog_reopen(void)
+{
+	FAR struct inode *inode;
+	FAR const char *relpath = NULL;
+	FAR const char *devpath;
+	int ret;
+
+	/* Get the current device path (may have been set by syslog_file_channel) */
+	devpath = g_syslog_file_path ? g_syslog_file_path : CONFIG_SYSLOG_DEVPATH;
+
+	/* Close the current device if it's open */
+	if (g_sysdev.sl_state == SYSLOG_OPENED) {
+		if (g_sysdev.sl_file.f_inode) {
+			inode_release(g_sysdev.sl_file.f_inode);
+		}
+		sem_destroy(&g_sysdev.sl_sem);
+		g_sysdev.sl_state = SYSLOG_UNINITIALIZED;
+	}
+
+	/* Get an inode for the new device path */
+	inode = inode_find(devpath, &relpath);
+	if (!inode) {
+		g_sysdev.sl_state = SYSLOG_REOPEN;
+		return -ENOENT;
+	}
+
+	/* Verify that the inode is valid and either a character driver or a
+	 * mountpoint.
+	 */
+
+#ifndef CONFIG_DISABLE_MOUNTPOINT
+	if ((!INODE_IS_DRIVER(inode) && !INODE_IS_MOUNTPT(inode)))
+#else
+	if (!INODE_IS_DRIVER(inode))
+#endif
+	{
+		ret = -ENXIO;
+		goto errout_with_inode;
+	}
+
+	/* Make sure that the "entity" at this inode supports write access */
+
+	if (!inode->u.i_ops || !inode->u.i_ops->write) {
+		ret = -EACCES;
+		goto errout_with_inode;
+	}
+
+	/* Initialize the file structure */
+
+	g_sysdev.sl_file.f_oflags = SYSLOG_OFLAGS;
+	g_sysdev.sl_file.f_pos = 0;
+	g_sysdev.sl_file.f_inode = inode;
+
+	/* Perform the low-level open operation. */
+
+	ret = OK;
+	if (inode->u.i_ops->open) {
+		/* Is the inode a mountpoint? */
+
+#ifndef CONFIG_DISABLE_MOUNTPOINT
+		if (INODE_IS_MOUNTPT(inode)) {
+			/* Yes.  Open the device write-only, try to create it if it
+			 * doesn't exist, if the file that already exists, then append the
+			 * new log data to end of the file.
+			 */
+
+			ret = inode->u.i_mops->open(&g_sysdev.sl_file, relpath, SYSLOG_OFLAGS, 0666);
+		}
+
+		/* No... then it must be a character driver in the TinyAra pseudo-
+		 * file system.
+		 */
+
+		else
+#endif
+		{
+			ret = inode->u.i_ops->open(&g_sysdev.sl_file);
+		}
+	}
+
+	/* Was the file/device successfully opened? */
+
+	if (ret < 0) {
+		ret = -ret;
+		goto errout_with_inode;
+	}
+
+	/* The SYSLOG device is open and ready for writing. */
+
+	sem_init(&g_sysdev.sl_sem, 0, 1);
+	g_sysdev.sl_holder = NO_HOLDER;
+	g_sysdev.sl_state = SYSLOG_OPENED;
+	return OK;
+
+errout_with_inode:
+	inode_release(inode);
+	g_sysdev.sl_state = SYSLOG_FAILURE;
+	return ret;
+}
+
+/****************************************************************************
+ * Name: syslog_capture_start
+ *
+ * Description:
+ *   Start capturing syslog output to a file. This function sets up file-based
+ *   logging by calling syslog_file_channel() with the specified path.
+ *
+ * Input Parameters:
+ *   logpath - The full path to the log file (e.g., "/mnt/logs/syslog.txt")
+ *
+ * Returned Value:
+ *   Returns OK (0) on success; A negated errno value is returned on failure.
+ *
+ ****************************************************************************/
+
+int syslog_capture_start(FAR const char *logpath)
+{
+	int ret;
+
+	if (logpath == NULL) {
+		return -EINVAL;
+	}
+
+	if (g_syslog_capturing) {
+		/* Already capturing, just return success */
+		return OK;
+	}
+
+	/* Set the log file path */
+	g_syslog_file_path = logpath;
+
+	/* Start capturing to the file */
+	ret = syslog_file_channel(logpath);
+	if (ret < 0) {
+		g_syslog_file_path = NULL;
+		return ret;
+	}
+
+	g_syslog_capturing = true;
+	return OK;
+}
+
+/****************************************************************************
+ * Name: syslog_capture_stop
+ *
+ * Description:
+ *   Stop capturing syslog output to file and restore console output.
+ *
+ * Returned Value:
+ *   Returns OK (0) on success; A negated errno value is returned on failure.
+ *
+ ****************************************************************************/
+
+int syslog_capture_stop(void)
+{
+	if (!g_syslog_capturing) {
+		/* Not capturing, just return success */
+		return OK;
+	}
+
+	/* Clear the file path to restore console output */
+	g_syslog_file_path = NULL;
+
+	/* Reopen syslog with console path */
+	int ret = syslog_reopen();
+	if (ret < 0) {
+		return ret;
+	}
+
+	g_syslog_capturing = false;
+	return OK;
+}
+
+/****************************************************************************
+ * Name: syslog_is_capturing
+ *
+ * Description:
+ *   Check if syslog capture is currently active.
+ *
+ * Returned Value:
+ *   Returns true if capturing is active, false otherwise.
+ *
+ ****************************************************************************/
+
+bool syslog_is_capturing(void)
+{
+	return g_syslog_capturing;
+}
+
+#endif /* CONFIG_SYSLOG_FILE */
 
 /****************************************************************************
  * Name: syslog_putc

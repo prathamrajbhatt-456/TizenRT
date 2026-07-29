@@ -70,6 +70,11 @@ ifeq ($(CONFIG_SYSLOG_CONSOLE),y)
   CSRCS += syslog_console.c
 endif
 
+ifeq ($(CONFIG_SYSLOG_FILE),y)
+  CSRCS += syslog_filechannel.c
+  CSRCS += syslog_dev.c
+endif
+
 # Include SYSLOG build support
 
 DEPPATH += --dep-path syslog

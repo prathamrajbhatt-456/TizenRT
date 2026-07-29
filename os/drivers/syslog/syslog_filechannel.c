@@ -16,9 +16,9 @@
  *
  ****************************************************************************/
 /****************************************************************************
- * The TinyAra SYSLOGing interface
+ * drivers/syslog/syslog_filechannel.c
  *
- *   Copyright (C) 2012, 2014 Gregory Nutt. All rights reserved.
+ *   Copyright (C) 2012 Gregory Nutt. All rights reserved.
  *   Author: Gregory Nutt <gnutt@nuttx.org>
  *
  * Redistribution and use in source and binary forms, with or without
@@ -50,82 +50,124 @@
  *
  ****************************************************************************/
 
-#ifndef __INCLUDE_SYSLOG_SYSLOG_H
-#define __INCLUDE_SYSLOG_SYSLOG_H
-
 /****************************************************************************
  * Included Files
  ****************************************************************************/
 
 #include <tinyara/config.h>
 
-/****************************************************************************
- * Pre-Processor Definitions
- ****************************************************************************/
-/* Configuration ************************************************************/
-/* CONFIG_SYSLOG - Enables generic system logging features.
- * CONFIG_SYSLOG_DEVPATH - The full path to the system logging device
- *
- * In addition, some SYSLOG device must also be enabled that will provide
- * the syslog_putc() function.  As of this writing, there are two SYSLOG
- * devices avaiable:
- *
- *   1. A RAM SYSLOGing device that will log data into a circular buffer
- *      that can be dumped using the TASH dmesg command.  This device is
- *      described in the include/nuttx/syslog/ramlog.h header file.
- *
- *   2. And a generic character device that may be used as the SYSLOG.  The
- *      generic device interfaces are described in this file.  A disadvantage
- *      of using the generic character device for the SYSLOG is that it
- *      cannot handle debug output generated from interrupt level handlers.
- *
- * CONFIG_SYSLOG_CHAR - Enable the generic character device for the SYSLOG.
- *   The full path to the SYSLOG device is provided by CONFIG_SYSLOG_DEVPATH.
- *   A valid character device must exist at this path.  It will by opened
- *   by syslog_initialize.
- *
- *   NOTE:  No more than one SYSLOG device should be configured.
- */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sched.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
-#ifndef CONFIG_SYSLOG
-#undef CONFIG_SYSLOG_CHAR
-#endif
-
-#if defined(CONFIG_SYSLOG_CHAR) && !defined(CONFIG_SYSLOG_DEVPATH)
-#define CONFIG_SYSLOG_DEVPATH "/dev/ttyS1"
-#endif
+#include <tinyara/syslog/syslog.h>
+#include <tinyara/kmalloc.h>
+#include <tinyara/fs/fs.h>
 
 /****************************************************************************
- * Public Data
+ * Pre-processor Definitions
  ****************************************************************************/
 
-#ifndef __ASSEMBLY__
-
-#ifdef __cplusplus
-#define EXTERN extern "C"
-extern "C" {
-#else
-#define EXTERN extern
-#endif
+#define OPEN_FLAGS (O_WRONLY | O_CREAT | O_APPEND)
+#define OPEN_MODE  (S_IROTH | S_IRGRP | S_IRUSR | S_IWUSR)
 
 /****************************************************************************
- * Public Function Prototypes
+ * Private Functions
  ****************************************************************************/
+
+#ifdef CONFIG_SYSLOG_FILE_SEPARATE
 /****************************************************************************
- * Name: syslog_initialize
+ * Name: log_separate
  *
  * Description:
- *   Initialize to use the character device (or file) at
- *   CONFIG_SYSLOG_DEVPATH as the SYSLOG sink.
- *
- *   NOTE that this implementation excludes using a network connection as
- *   SYSLOG device.  That would be a good extension.
+ *   Add a separator line to the log file to distinguish between different
+ *   log sessions (e.g., system reboots).
  *
  ****************************************************************************/
 
-#ifdef CONFIG_SYSLOG_CHAR
-EXTERN int syslog_initialize(void);
+static void log_separate(FAR const char *log_file)
+{
+	struct file fp;
+
+	if (file_open(&fp, log_file, (O_WRONLY | O_APPEND | O_CLOEXEC)) < 0) {
+		return;
+	}
+
+	file_write(&fp, "\n\n", 2);
+
+	file_close(&fp);
+}
 #endif
+
+#if CONFIG_SYSLOG_FILE_ROTATIONS > 0
+/****************************************************************************
+ * Name: log_rotate
+ *
+ * Description:
+ *   Rotate the log file if it exceeds the size limit.
+ *
+ ****************************************************************************/
+
+static void log_rotate(FAR const char *log_file)
+{
+	int i;
+	off_t size;
+	struct stat f_stat;
+	size_t name_size;
+	FAR char *rotate_to;
+	FAR char *rotate_from;
+
+	/* Get the size of the current log file. */
+
+	if (stat(log_file, &f_stat) < 0) {
+		return;
+	}
+
+	size = f_stat.st_size;
+
+	/* If it does not exceed the limit we are OK. */
+
+	if (size < CONFIG_SYSLOG_FILE_SIZE_LIMIT) {
+		return;
+	}
+
+	/* Rotated file names. */
+
+	name_size = strlen(log_file) + 8;
+	rotate_to = kmm_malloc(name_size);
+	rotate_from = kmm_malloc(name_size);
+	if ((rotate_to == NULL) || (rotate_from == NULL)) {
+		goto end;
+	}
+
+	/* Rotate the logs. */
+
+	for (i = (CONFIG_SYSLOG_FILE_ROTATIONS - 1); i > 0; i--) {
+		snprintf(rotate_to, name_size, "%s.%d", log_file, i);
+		snprintf(rotate_from, name_size, "%s.%d", log_file, i - 1);
+
+		rename(rotate_from, rotate_to);
+	}
+
+	snprintf(rotate_to, name_size, "%s.0", log_file);
+
+	rename(log_file, rotate_to);
+
+end:
+	kmm_free(rotate_to);
+	kmm_free(rotate_from);
+}
+#endif
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
 
 /****************************************************************************
  * Name: syslog_file_channel
@@ -163,73 +205,47 @@ EXTERN int syslog_initialize(void);
  ****************************************************************************/
 
 #ifdef CONFIG_SYSLOG_FILE
-EXTERN FAR const char *g_syslog_file_path;
-int syslog_file_channel(FAR const char *devpath);
-int syslog_reopen(void);
+int syslog_file_channel(FAR const char *devpath)
+{
+	irqstate_t flags;
+	int ret;
 
-/****************************************************************************
- * Name: syslog_capture_start
- *
- * Description:
- *   Start capturing syslog output to a file.
- *
- * Input Parameters:
- *   logpath - The full path to the log file (e.g., "/mnt/logs/syslog.txt")
- *
- * Returned Value:
- *   Returns OK (0) on success; A negated errno value is returned on failure.
- *
- ****************************************************************************/
+	/* Validate input parameters */
 
-int syslog_capture_start(FAR const char *logpath);
+	if (devpath == NULL) {
+		return -EINVAL;
+	}
 
-/****************************************************************************
- * Name: syslog_capture_stop
- *
- * Description:
- *   Stop capturing syslog output to file and restore console output.
- *
- * Returned Value:
- *   Returns OK (0) on success; A negated errno value is returned on failure.
- *
- ****************************************************************************/
+	/* Disable pre-emption to prevent re-entry while we configure the
+	 * file channel.
+	 */
 
-int syslog_capture_stop(void);
+	flags = enter_critical_section();
 
-/****************************************************************************
- * Name: syslog_is_capturing
- *
- * Description:
- *   Check if syslog capture is currently active.
- *
- * Returned Value:
- *   Returns true if capturing is active, false otherwise.
- *
- ****************************************************************************/
+	/* Store the file path for use by syslog_reopen() and syslog_putc() */
 
-bool syslog_is_capturing(void);
+	g_syslog_file_path = devpath;
+
+	/* Rotate the log file, if needed. */
+
+#if CONFIG_SYSLOG_FILE_ROTATIONS > 0
+	log_rotate(devpath);
 #endif
 
-/****************************************************************************
- * Name: syslog_putc
- *
- * Description:
- *   This is the low-level system logging interface.  The debugging/syslogging
- *   interfaces are syslog() and lowsyslog().  The difference is that
- *   the syslog() internface writes to fd=1 (stdout) whereas lowsyslog() uses
- *   a lower level interface that works from interrupt handlers.  This
- *   function is the low-level interface used to implement lowsyslog().
- *
- ****************************************************************************/
+	/* Separate the old log entries. */
 
-#ifdef CONFIG_SYSLOG
-EXTERN int syslog_putc(int ch);
+#ifdef CONFIG_SYSLOG_FILE_SEPARATE
+	log_separate(devpath);
 #endif
 
-#undef EXTERN
-#ifdef __cplusplus
+	/* Re-open syslog with the new file path. This will close the existing
+	 * syslog device (if any) and open the file for logging.
+	 */
+
+	ret = syslog_reopen();
+
+	leave_critical_section(flags);
+
+	return ret;
 }
-#endif
-
-#endif							/* __ASSEMBLY__ */
-#endif							/* __INCLUDE_SYSLOG_SYSLOG_H */
+#endif /* CONFIG_SYSLOG_FILE */

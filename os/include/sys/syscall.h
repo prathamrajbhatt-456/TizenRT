@@ -338,7 +338,8 @@
 
 #define SYS_fin_wait                   SYS_prctl + 1
 
-#define SYS_maxsyscall                 (SYS_fin_wait + 1)
+#define SYS_syslog_putc                (SYS_fin_wait + 1)
+#define SYS_maxsyscall                 (SYS_syslog_putc + 1)
 
 /* Note that the reported number of system calls does *NOT* include the
  * architecture-specific system calls.  If the "real" total is required,

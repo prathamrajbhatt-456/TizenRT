@@ -115,6 +115,8 @@ int printf(FAR const char *fmt, ...)
 
 #if defined(CONFIG_LOGM) && defined(CONFIG_PRINTF2LOGM)
 	ret = logm_internal(LOGM_NORMAL, LOGM_UNKNOWN, LOGM_DEF_PRIORITY, fmt, ap);
+#elif defined(CONFIG_SYSLOG_FILE)
+    ret = vsyslog(LOG_INFO, fmt, ap);
 #elif CONFIG_NFILE_STREAMS > 0
 	ret = vfprintf(stdout, fmt, ap);
 #elif CONFIG_NFILE_DESCRIPTORS > 0
