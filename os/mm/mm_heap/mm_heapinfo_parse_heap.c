@@ -194,9 +194,9 @@ void heapinfo_parse_heap(FAR struct mm_heap_s *heap, int mode, pid_t pid)
 			if ((pid == HEAPINFO_PID_ALL || node->pid == pid) && (node->preceding & MM_ALLOC_BIT) != 0) {
 				if (mode == HEAPINFO_DETAIL_ALL || mode == HEAPINFO_DETAIL_PID || mode == HEAPINFO_DETAIL_SPECIFIC_HEAP) {
 					if (node->pid >= 0) {
-						heap_dbg("0x%x | %8u |   %c    | 0x%8x | %3d   |\n", node, node->size, 'A', node->alloc_call_addr, node->pid);
+						heap_dbg("0x%x | %8u |   %c    | 0x%8x | %3d   | bt: 0x%x 0x%x\n", node, node->size, 'A', node->alloc_call_addr, node->pid, node->alloc_caller_backtrace[0], node->alloc_caller_backtrace[1]);
 					} else {
-						heap_dbg("0x%x | %8u |   %c    | 0x%8x | %3d(S)|\n", node, node->size, 'A', node->alloc_call_addr, -(node->pid));
+						heap_dbg("0x%x | %8u |   %c    | 0x%8x | %3d(S)| bt: 0x%x 0x%x\n", node, node->size, 'A', node->alloc_call_addr, -(node->pid), node->alloc_caller_backtrace[0], node->alloc_caller_backtrace[1]);
 					}
 				}
 

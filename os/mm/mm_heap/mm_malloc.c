@@ -57,6 +57,7 @@
 #include <tinyara/config.h>
 
 #include <debug.h>
+#include <unistd.h>
 
 #include <tinyara/mm/mm.h>
 
@@ -127,6 +128,60 @@ static void mm_free_delaylist(FAR struct mm_heap_s *heap)
 	}
 #endif
 }
+
+#if defined(CONFIG_DEBUG_MM_HEAPINFO) && !defined(__KERNEL__)
+/****************************************************************************
+ * Name: heapinfo_capture_backtrace
+ *
+ * Description:
+ *   Record up to (HEAPINFO_BACKTRACE_DEPTH - 1) application caller frames
+ *   (beyond the immediate caller stored in alloc_call_addr, backtrace
+ *   level 0) into the allocated node header.
+ *
+ *   This helper is compiled only for user-space builds (__KERNEL__ not
+ *   defined), so the captured frames belong to the application call stack.
+ *
+ *   The deeper frames are captured from the application call stack of the
+ *   current (user) thread using sched_backtrace(), which walks the compiler
+ *   EHABI unwind tables. Only application frames are recorded (this helper is
+ *   user-space only). When CONFIG_SCHED_BACKTRACE is off, the frames are left
+ *   NULL.
+ ****************************************************************************/
+
+#ifdef CONFIG_SCHED_BACKTRACE
+/* Provided by the user-space C library (lib/libc/sched/sched_backtrace.c).
+ * Declared here to avoid a hard header dependency in mm_malloc.c. */
+extern int sched_backtrace(pid_t tid, FAR void **buffer, int size, int skip);
+
+/* Innermost frames to omit so the recorded frames are application callers:
+ * sched_backtrace(), this helper, and the mm/malloc wrapper frames down to the
+ * malloc call site (alloc_call_addr already holds that immediate caller as
+ * backtrace level 0). Tune to your product's malloc wrapper depth. */
+#ifndef HEAPINFO_BACKTRACE_SKIP
+#define HEAPINFO_BACKTRACE_SKIP 4
+#endif
+#endif
+
+static void heapinfo_capture_backtrace(FAR struct mm_allocnode_s *node)
+{
+	int i;
+#ifdef CONFIG_SCHED_BACKTRACE
+	int n;
+	FAR void *frames[HEAPINFO_BACKTRACE_DEPTH - 1];
+
+	/* Application call stack of the current (user) thread. */
+	n = sched_backtrace(getpid(), frames, HEAPINFO_BACKTRACE_DEPTH - 1, HEAPINFO_BACKTRACE_SKIP);
+
+	for (i = 0; i < HEAPINFO_BACKTRACE_DEPTH - 1; i++) {
+		node->alloc_caller_backtrace[i] = (i < n) ? frames[i] : NULL;
+	}
+#else
+	for (i = 0; i < HEAPINFO_BACKTRACE_DEPTH - 1; i++) {
+		node->alloc_caller_backtrace[i] = NULL;
+	}
+#endif
+}
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -285,6 +340,10 @@ retry_after_gc:
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 		heapinfo_update_node(heap, allocnode, caller_retaddr);
+#if !defined(__KERNEL__)
+		/* Capture the application call stack for user-space allocations only. */
+		heapinfo_capture_backtrace(allocnode);
+#endif
 		heapinfo_add_size(heap, allocnode->pid, allocnode->size, allocnode);
 		heapinfo_update_total_size(heap, allocnode->size, allocnode->pid);
 #endif

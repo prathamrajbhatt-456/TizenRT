@@ -322,8 +322,14 @@ void heapinfo_update_total_size(struct mm_heap_s *heap, mmsize_t size, pid_t pid
  ****************************************************************************/
 void heapinfo_update_node(FAR struct mm_heap_s *heap, FAR struct mm_allocnode_s *node, mmaddress_t caller_retaddr)
 {
+	int i;
 	DEBUGASSERT(node);
 	node->alloc_call_addr = caller_retaddr;
+	/* Default the deeper backtrace levels to NULL for every allocation (user
+	 * and kernel). User-space allocations get them filled in mm_malloc(). */
+	for (i = 0; i < HEAPINFO_BACKTRACE_DEPTH - 1; i++) {
+		node->alloc_caller_backtrace[i] = NULL;
+	}
 	node->pid = getpid();
 	/* Tag this allocation if a capture window is active on this heap and the pid
 	 * matches. Blocks freed before the window is stopped are coalesced (they

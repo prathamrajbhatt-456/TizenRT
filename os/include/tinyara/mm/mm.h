@@ -234,7 +234,13 @@ typedef size_t mmsize_t;
 typedef void *mmaddress_t;             /* 32 bit address space */
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-#define SIZEOF_MM_MALLOC_DEBUG_INFO (sizeof(mmaddress_t) + sizeof(pid_t) + sizeof(uint16_t))
+/* Total malloc caller backtrace levels recorded per allocated node.
+ * Level 0 is the immediate caller (alloc_call_addr); the remaining
+ * (HEAPINFO_BACKTRACE_DEPTH - 1) deeper frames are stored in
+ * alloc_caller_backtrace[]. */
+#define HEAPINFO_BACKTRACE_DEPTH 3
+
+#define SIZEOF_MM_MALLOC_DEBUG_INFO (HEAPINFO_BACKTRACE_DEPTH * sizeof(mmaddress_t) + sizeof(pid_t) + sizeof(uint16_t))
 
 /* Memory state values */
 #define MM_MEMORY_STATE_UNUSED   0  /* Initial state */
@@ -260,7 +266,8 @@ typedef void *mmaddress_t;             /* 32 bit address space */
 struct mm_allocnode_s {
 	mmsize_t preceding;				/* Size of the preceding chunk */
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-	mmaddress_t alloc_call_addr;			/* malloc call address */
+	mmaddress_t alloc_call_addr;			/* malloc call address (backtrace level 0) */
+	mmaddress_t alloc_caller_backtrace[HEAPINFO_BACKTRACE_DEPTH - 1];	/* deeper malloc caller frames (levels 1..) */
 	pid_t pid;					/* PID info */
 	uint16_t memory_state;				/* Memory state for leak detection. */
 #endif
@@ -281,7 +288,8 @@ struct mm_allocnode_s {
 struct mm_freenode_s {
 	mmsize_t preceding;			/* Size of the preceding chunk */
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-	mmaddress_t alloc_call_addr;			/* malloc call address */
+	mmaddress_t alloc_call_addr;			/* malloc call address (backtrace level 0) */
+	mmaddress_t alloc_caller_backtrace[HEAPINFO_BACKTRACE_DEPTH - 1];	/* deeper malloc caller frames (levels 1..) */
 	pid_t pid;					/* PID info */
 	uint16_t memory_state;				/* Memory state for leak detection. */
 #endif
