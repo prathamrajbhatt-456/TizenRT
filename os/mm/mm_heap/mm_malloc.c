@@ -284,8 +284,8 @@ retry_after_gc:
 		allocnode->preceding |= MM_ALLOC_BIT;
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
-		heapinfo_update_node(allocnode, caller_retaddr);
-		heapinfo_add_size(heap, allocnode->pid, allocnode->size);
+		heapinfo_update_node(heap, allocnode, caller_retaddr);
+		heapinfo_add_size(heap, allocnode->pid, allocnode->size, allocnode);
 		heapinfo_update_total_size(heap, allocnode->size, allocnode->pid);
 #endif
 		ret = (void *)((char *)allocnode + SIZEOF_MM_ALLOCNODE);
