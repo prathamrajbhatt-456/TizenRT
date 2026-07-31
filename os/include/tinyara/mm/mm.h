@@ -240,6 +240,18 @@ typedef void *mmaddress_t;             /* 32 bit address space */
  * alloc_caller_backtrace[]. */
 #define HEAPINFO_BACKTRACE_DEPTH 3
 
+/* Innermost frames to omit so the recorded frames are application callers:
+ * sched_backtrace(), the capture helper, and the mm/malloc wrapper frames
+ * down to the malloc call site (alloc_call_addr already holds that immediate
+ * caller as backtrace level 0). Tune to your product's malloc wrapper depth.
+ * This is the compile-time default; the runtime value is stored in the
+ * global variable g_backtrace_skip in mm_malloc.c and can be changed at
+ * runtime from the heapinfo app (heapinfo -s SKIP).
+ */
+#ifndef HEAPINFO_BACKTRACE_SKIP
+#define HEAPINFO_BACKTRACE_SKIP 3
+#endif
+
 #define SIZEOF_MM_MALLOC_DEBUG_INFO (HEAPINFO_BACKTRACE_DEPTH * sizeof(mmaddress_t) + sizeof(pid_t) + sizeof(uint16_t))
 
 /* Memory state values */
@@ -351,6 +363,7 @@ struct heapinfo_capture_entry_s {
 	mmsize_t size;			/* node size, same unit the counter uses */
 	mmsize_t old_size;		/* previous size, realloc entries only */
 	mmaddress_t caller;		/* malloc caller return address */
+	mmaddress_t backtrace[HEAPINFO_BACKTRACE_DEPTH - 1];	/* deeper malloc caller frames (levels 1..) */
 	pid_t pid;			/* owner pid as accounted by the counter */
 	uint8_t type;			/* HEAPINFO_CAPTURE_ALLOC / FREED / REALLOC */
 };

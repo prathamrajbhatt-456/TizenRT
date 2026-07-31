@@ -225,8 +225,13 @@ int utils_heapinfo(int argc, char **args)
 	if (argc >= 2 && !strncmp(args[1], "--help", strlen("--help") + 1)) {
 		goto usage;
 	}
-
-	while ((opt = getopt(argc, args, "ikb:d:ap:fgrc:")) != ERROR) {
+	/* Reset getopt's global state so that a previous invocation which returned
+	 * early (e.g. -s) does not leave optind/g_binitialized stale, causing the
+	 * next call to start parsing from the wrong argv position.
+	*/
+	optind = 0;
+	
+	while ((opt = getopt(argc, args, "ikb:d:ap:fgrc:s:")) != ERROR) {
 		switch (opt) {
 		/* i : initialize the peak allocated memory size. */
 		case 'i':
@@ -298,6 +303,24 @@ int utils_heapinfo(int argc, char **args)
 			}
 			capture = true;
 			heapinfo_display_flag = HEAPINFO_DISPLAY_ALL;
+			break;
+		/* s : set the runtime backtrace skip value. */
+		case 's':
+			if (!atoi(optarg) && strncmp(optarg, "0", strlen("0") + 1) != 0) {
+				printf("Invalid skip value.\n");
+				goto usage;
+			}
+			{
+				int skip = atoi(optarg);
+				/* g_backtrace_skip is a non-static global in mm_malloc.c (user space).
+				 * Since the heapinfo command and mm_malloc.c are in the same binary,
+				 * we can set it directly without an ioctl.
+				 */
+				extern int g_backtrace_skip;
+				g_backtrace_skip = skip;
+				printf("Backtrace skip value set to %d\n", skip);
+				return OK;
+			}
 			break;
 		case 'r':
 #if CONFIG_KMM_REGIONS > 1
@@ -415,5 +438,6 @@ usage:
 	printf(" -c start|stop  Start/stop a heap capture window. On stop, print every block\n");
 	printf("                allocated during the window that is still not freed (address,\n");
 	printf("                size, pid, alloc caller). Combine with -p PID to target one task.\n");
+	printf(" -s SKIP        Set the runtime backtrace skip value\n");
 	return ERROR;
 }

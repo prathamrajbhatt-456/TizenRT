@@ -159,6 +159,7 @@ static int mminfo_ioctl(FAR struct file *filep, int cmd, unsigned long arg)
 					heapinfo_capture_report(heap, option->pid);
 				}
 			}
+			ret = OK;
 			break;
 		}
 #if CONFIG_KMM_NHEAPS > 1

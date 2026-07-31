@@ -55,6 +55,7 @@
 #include <tinyara/config.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/types.h>
 #include <tinyara/sched.h>
 #include <tinyara/arch.h>
@@ -78,6 +79,7 @@ static void heapinfo_capture_insert(struct mm_heap_s *heap, FAR struct mm_allocn
 		entry->size = node->size;
 		entry->old_size = 0;
 		entry->caller = node->alloc_call_addr;
+		memcpy(entry->backtrace, node->alloc_caller_backtrace, sizeof(entry->backtrace));
 		entry->pid = node->pid;
 		entry->type = HEAPINFO_CAPTURE_ALLOC;
 	} else {
@@ -98,6 +100,7 @@ static void heapinfo_capture_insert_freed(struct mm_heap_s *heap, FAR struct mm_
 		entry->size = size;
 		entry->old_size = 0;
 		entry->caller = node->alloc_call_addr;
+		memcpy(entry->backtrace, node->alloc_caller_backtrace, sizeof(entry->backtrace));
 		entry->pid = pid;
 		entry->type = HEAPINFO_CAPTURE_FREED;
 	} else {

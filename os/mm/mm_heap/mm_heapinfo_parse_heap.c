@@ -407,11 +407,11 @@ void heapinfo_capture_report(FAR struct mm_heap_s *heap, pid_t pid)
 	/* (1) new allocations still alive */
 	heap_dbg("****************************************************************\n");
 	heap_dbg(" [1] NEW ALLOCATIONS (allocated in window, not freed)\n");
-	heap_dbg("  MemAddr |   Size   |    Owner   |  Pid  |\n");
-	heap_dbg("----------|----------|------------|-------|\n");
+	heap_dbg("  MemAddr |   Size   |    Owner   |  Pid  | bt: level1 level2\n");
+	heap_dbg("----------|----------|------------|-------|------------------------\n");
 	for (i = 0; i < count; i++) {
 		if (table[i].type == HEAPINFO_CAPTURE_ALLOC) {
-			heap_dbg("0x%x | %8u | 0x%8x | %3d   |\n", table[i].addr, table[i].size, table[i].caller, table[i].pid);
+			heap_dbg("0x%x | %8u | 0x%8x | %3d   | bt: 0x%x 0x%x\n", table[i].addr, table[i].size, table[i].caller, table[i].pid, table[i].backtrace[0], table[i].backtrace[1]);
 			alloc_sum += (int)table[i].size;
 			alloc_cnt++;
 		}
@@ -420,11 +420,11 @@ void heapinfo_capture_report(FAR struct mm_heap_s *heap, pid_t pid)
 
 	/* (2) reallocations of pre window blocks */
 	heap_dbg("\n [2] REALLOCATIONS (pre window block resized in window)\n");
-	heap_dbg("  MemAddr | Old Size | New Size |  Diff   |    Owner   |  Pid  |\n");
-	heap_dbg("----------|----------|----------|---------|------------|-------|\n");
+	heap_dbg("  MemAddr | Old Size | New Size |  Diff   |    Owner   |  Pid  | bt: level1 level2\n");
+	heap_dbg("----------|----------|----------|---------|------------|-------|------------------------\n");
 	for (i = 0; i < count; i++) {
 		if (table[i].type == HEAPINFO_CAPTURE_REALLOC) {
-			heap_dbg("0x%x | %8u | %8u | %7d | 0x%8x | %3d   |\n", table[i].addr, table[i].old_size, table[i].size, (int)table[i].size - (int)table[i].old_size, table[i].caller, table[i].pid);
+			heap_dbg("0x%x | %8u | %8u | %7d | 0x%8x | %3d   | bt: 0x%x 0x%x\n", table[i].addr, table[i].old_size, table[i].size, (int)table[i].size - (int)table[i].old_size, table[i].caller, table[i].pid, table[i].backtrace[0], table[i].backtrace[1]);
 			realloc_delta += (int)table[i].size - (int)table[i].old_size;
 			realloc_cnt++;
 		}
@@ -433,11 +433,11 @@ void heapinfo_capture_report(FAR struct mm_heap_s *heap, pid_t pid)
 
 	/* (3) pre window blocks freed in the window */
 	heap_dbg("\n [3] FREED (pre window block freed in window)\n");
-	heap_dbg("  MemAddr |   Size   |    Owner   |  Pid  |\n");
-	heap_dbg("----------|----------|------------|-------|\n");
+	heap_dbg("  MemAddr |   Size   |    Owner   |  Pid  | bt: level1 level2\n");
+	heap_dbg("----------|----------|------------|-------|------------------------\n");
 	for (i = 0; i < count; i++) {
 		if (table[i].type == HEAPINFO_CAPTURE_FREED) {
-			heap_dbg("0x%x | %8u | 0x%8x | %3d   |\n", table[i].addr, table[i].size, table[i].caller, table[i].pid);
+			heap_dbg("0x%x | %8u | 0x%8x | %3d   | bt: 0x%x 0x%x\n", table[i].addr, table[i].size, table[i].caller, table[i].pid, table[i].backtrace[0], table[i].backtrace[1]);
 			freed_sum += (int)table[i].size;
 			freed_cnt++;
 		}

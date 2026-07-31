@@ -152,15 +152,14 @@ static void mm_free_delaylist(FAR struct mm_heap_s *heap)
 /* Provided by the user-space C library (lib/libc/sched/sched_backtrace.c).
  * Declared here to avoid a hard header dependency in mm_malloc.c. */
 extern int sched_backtrace(pid_t tid, FAR void **buffer, int size, int skip);
+#endif
 
-/* Innermost frames to omit so the recorded frames are application callers:
- * sched_backtrace(), this helper, and the mm/malloc wrapper frames down to the
- * malloc call site (alloc_call_addr already holds that immediate caller as
- * backtrace level 0). Tune to your product's malloc wrapper depth. */
-#ifndef HEAPINFO_BACKTRACE_SKIP
-#define HEAPINFO_BACKTRACE_SKIP 4
-#endif
-#endif
+/* Runtime backtrace skip value. Initialized to the compile-time default
+ * HEAPINFO_BACKTRACE_SKIP. Can be changed at runtime from the heapinfo app
+ * (heapinfo -s SKIP) since this variable lives in the same binary as the
+ * heapinfo command in a protected build.
+ */
+int g_backtrace_skip = HEAPINFO_BACKTRACE_SKIP;
 
 static void heapinfo_capture_backtrace(FAR struct mm_allocnode_s *node)
 {
@@ -170,7 +169,7 @@ static void heapinfo_capture_backtrace(FAR struct mm_allocnode_s *node)
 	FAR void *frames[HEAPINFO_BACKTRACE_DEPTH - 1];
 
 	/* Application call stack of the current (user) thread. */
-	n = sched_backtrace(getpid(), frames, HEAPINFO_BACKTRACE_DEPTH - 1, HEAPINFO_BACKTRACE_SKIP);
+	n = sched_backtrace(getpid(), frames, HEAPINFO_BACKTRACE_DEPTH - 1, g_backtrace_skip);
 
 	for (i = 0; i < HEAPINFO_BACKTRACE_DEPTH - 1; i++) {
 		node->alloc_caller_backtrace[i] = (i < n) ? frames[i] : NULL;
