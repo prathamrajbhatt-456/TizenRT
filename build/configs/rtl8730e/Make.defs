@@ -175,6 +175,11 @@ endif
   CXXFLAGS += -pedantic -D_DEBUG -D_LIBCPP_BUILD_STATIC -ffunction-sections -fdata-sections -D__GLIBCXX__
 endif
 
+ifeq ($(findstring __KERNEL__,$(EXTRADEFINES)),)
+  ARCHCFLAGS += -funwind-tables
+  ARCHCXXFLAGS += -funwind-tables
+endif
+
 ifeq ($(CONFIG_LIBCXX_EXCEPTION),y)
   CXXFLAGS += -fexceptions
 else
