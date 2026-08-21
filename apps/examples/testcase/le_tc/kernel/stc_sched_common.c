@@ -246,6 +246,11 @@ void stc_workload_init(struct stc_workload_s *wl, int nworkers, int priority,
 	wl->priority = priority;
 	wl->policy = policy;
 	wl->window_ms = STC_WINDOW_MS;
+
+#ifdef CONFIG_SMP
+	wl->affinity = STC_ALL_CPUS_AFFINITY;
+	wl->pinned = true;	/* Apply the affinity by default */
+#endif
 }
 
 /****************************************************************************

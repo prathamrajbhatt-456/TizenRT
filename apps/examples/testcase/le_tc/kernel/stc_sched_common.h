@@ -58,6 +58,12 @@
 
 #define STC_MAX_WORKERS         8
 
+/* Affinity mask representing all CPUs.  Used by stc_workload_init() to
+ * initialize the default affinity.
+ */
+
+#define STC_ALL_CPUS_AFFINITY   ((cpu_set_t)~0u)
+
 /* Cache line size in bytes.  Worker counters are padded to this so that no
  * two workers ever share a line.  On a target running from external DDR,
  * unpadded neighbouring counters written from two CPUs produce false sharing

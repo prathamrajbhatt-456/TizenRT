@@ -183,6 +183,7 @@ static void stc_sched_aff01_pinned_stays_put(void)
 	wl.window_ms = STC_AFF_WINDOW_MS;
 	wl.pinned = true;
 	wl.sample_cpu = true;
+	CPU_ZERO(&wl.affinity);
 	CPU_SET(target, &wl.affinity);
 
 	run_ret = stc_run_workload(&wl);
