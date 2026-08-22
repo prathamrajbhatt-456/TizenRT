@@ -28,6 +28,8 @@
  ****************************************************************************/
 
 #include <tinyara/config.h>
+#include <stdint.h>
+#include <sys/types.h>
 #include <tinyara/fs/ioctl.h>
 
 #ifdef CONFIG_DRIVERS_OS_API_TEST
@@ -88,7 +90,60 @@
 #define TESTIOC_GET_FS_PARTNO			_TESTIOC(24)
 #endif
 
+#ifdef CONFIG_SMP
+#define TESTIOC_SCHED_CPUSTATE			_TESTIOC(25)
+#endif
+
 #define OS_API_TEST_DRVPATH	"/dev/os_api_test"
+
+#ifdef CONFIG_SMP
+/* Snapshot of the SMP scheduler's placement state.
+ *
+ * TESTIOC_SCHED_CPUSTATE fills one of these from inside a critical section so
+ * that every field describes the same instant.  It answers a single question:
+ * when an unassigned task is waiting in g_readytorun, why was it not given to
+ * an idle CPU?
+ *
+ * Read only.  Nothing here changes scheduler state.
+ */
+
+#define TEST_CPUSTATE_MAXRTR	8
+#define TEST_CPUSTATE_NAMELEN	16
+
+/* One entry per CPU, describing the head of g_assignedtasks[cpu] -- that is,
+ * the task the CPU is actually executing.
+ */
+
+struct test_cpu_slot_s {
+	pid_t pid;
+	uint8_t priority;
+	uint8_t state;				/* tstate_t of the running task */
+	uint8_t nassigned;			/* Length of g_assignedtasks[cpu] */
+	uint8_t idle_only;			/* head->flink == NULL, i.e. only IDLE here */
+	char name[TEST_CPUSTATE_NAMELEN];
+};
+
+/* One entry per waiting task in g_readytorun, in priority order. */
+
+struct test_rtr_slot_s {
+	pid_t pid;
+	uint8_t priority;
+	uint32_t affinity;
+	char name[TEST_CPUSTATE_NAMELEN];
+};
+
+struct test_cpustate_s {
+	uint8_t ncpus;				/* CONFIG_SMP_NCPUS */
+	uint8_t caller_cpu;			/* CPU the caller is running on */
+	uint32_t active_mask;			/* g_active_cpus_mask */
+	uint8_t sched_locked;			/* sched_islocked_global() */
+	int8_t select_all;			/* sched_select_cpu(all CPUs) */
+	uint8_t nrtr;				/* Length of g_readytorun */
+	uint8_t nrtr_reported;			/* Entries filled in rtr[] */
+	struct test_cpu_slot_s cpu[CONFIG_SMP_NCPUS];
+	struct test_rtr_slot_s rtr[TEST_CPUSTATE_MAXRTR];
+};
+#endif							/* CONFIG_SMP */
 
 /****************************************************************************
  * Public Data

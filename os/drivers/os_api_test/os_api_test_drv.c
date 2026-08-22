@@ -101,6 +101,9 @@ static int os_api_test_drv_ioctl(FAR struct file *filep, int cmd, unsigned long 
 	case TESTIOC_IS_ALIVE_THREAD:
 	case TESTIOC_GET_TCB_ADJ_STACK_SIZE:
 	case TESTIOC_SCHED_FOREACH:
+#ifdef CONFIG_SMP
+	case TESTIOC_SCHED_CPUSTATE:
+#endif
 		ret = test_sched(cmd, arg);
 		break;
 	case TESTIOC_CLOCK_ABSTIME2TICKS_TEST:
