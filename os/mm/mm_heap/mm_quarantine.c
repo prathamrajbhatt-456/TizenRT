@@ -40,37 +40,117 @@
  ****************************************************************************/
 
 /****************************************************************************
- * Name: quarantine_area
+ * Name: quarantine_poison_chunk
  *
  * Description:
- *   Work out which part of a held chunk carries the poison pattern.
- *
- *   A held chunk keeps MM_ALLOC_BIT set and stays out of the free list, but
- *   when it is released from quarantine it will be converted to a free node
- *   and added to the free list. At that point, flink and blink pointers will
- *   be written into the space immediately following the alloc header.
- *
- *   Therefore, the poison pattern must start after SIZEOF_MM_FREENODE to
- *   avoid corrupting the flink/blink pointers that will be stored there.
- *   This ensures that when the chunk is released from quarantine and merged
- *   with neighbors, the free list manipulation macros can safely access
- *   these pointers.
- *
- *   The length is bounded by CONFIG_DEBUG_MM_QUARANTINE_MAX_SIZE, which
- *   decides whether a chunk is worth holding at all.
+ *   Poison a quarantine chunk with preceding+size as repeated pattern
+ *   (if CONFIG_DEBUG_MM_UAF_METADATA_POISON is enabled) or standard poison.
+ *   This unified function handles both cases internally.
  *
  ****************************************************************************/
 
-static void quarantine_area(FAR struct mm_allocnode_s *node, FAR void **start, FAR size_t *nbytes)
+static void quarantine_poison_chunk(FAR struct mm_allocnode_s *node)
 {
-	/* Skip the entire free node header area to preserve space for flink/blink
-	 * pointers that will be written when this chunk is released from quarantine
-	 * and added to the free list.
-	 */
-	size_t offset = MM_UAF_ALIGN_UP(SIZEOF_MM_FREENODE);
+	FAR void *start;
+	size_t nbytes;
+	size_t offset;
+	size_t minimal_size;
+	size_t i;
 
-	*start = (FAR void *)((FAR char *)node + offset);
-	*nbytes = (node->size > offset) ? node->size - offset : 0;
+	/* Get data area at correct offset (SIZEOF_MM_FREENODE) */
+	offset = MM_UAF_ALIGN_UP(SIZEOF_MM_FREENODE);
+	start = (FAR void *)((FAR char *)node + offset);
+	nbytes = (node->size > offset) ? node->size - offset : 0;
+
+	if (nbytes == 0) {
+		return;
+	}
+
+#ifdef CONFIG_DEBUG_MM_UAF_METADATA_POISON
+	minimal_size = sizeof(node->preceding) + sizeof(node->size);
+
+	if (nbytes >= minimal_size) {
+		/* Repeat metadata pattern (preceding + size) throughout data area */
+		for (i = 0; i + minimal_size <= nbytes; i += minimal_size) {
+			memcpy((FAR uint8_t *)start + i, &node->preceding, sizeof(node->preceding));
+			memcpy((FAR uint8_t *)start + i + sizeof(node->preceding),
+				   &node->size, sizeof(node->size));
+		}
+
+		/* Fill remaining space with standard poison */
+		if (i < nbytes) {
+			mm_uaf_poison_range((FAR uint8_t *)start + i, nbytes - i);
+		}
+		return;
+	}
+#endif
+
+	/* Standard poison (also fallback for small chunks) */
+	mm_uaf_poison_range(start, nbytes);
+}
+
+/****************************************************************************
+ * Name: quarantine_verify_chunk
+ *
+ * Description:
+ *   Verify a quarantine chunk - checks preceding+size pattern
+ *   (if CONFIG_DEBUG_MM_UAF_METADATA_POISON is enabled) or standard poison.
+ *   This unified function handles both cases internally.
+ *
+ *   CRITICAL: Must be called BEFORE clearing MM_ALLOC_BIT.
+ *
+ ****************************************************************************/
+
+static void quarantine_verify_chunk(FAR struct mm_allocnode_s *node)
+{
+	FAR void *start;
+	size_t nbytes;
+	size_t offset;
+	size_t minimal_size;
+	FAR uint8_t *copy;
+	bool corrupted = false;
+
+	/* Get data area at correct offset */
+	offset = MM_UAF_ALIGN_UP(SIZEOF_MM_FREENODE);
+	start = (FAR void *)((FAR char *)node + offset);
+	nbytes = (node->size > offset) ? node->size - offset : 0;
+
+	if (nbytes == 0) {
+		return;
+	}
+
+#ifdef CONFIG_DEBUG_MM_UAF_METADATA_POISON
+	minimal_size = sizeof(node->preceding) + sizeof(node->size);
+
+	if (nbytes >= minimal_size) {
+		copy = (FAR uint8_t *)start;
+
+		/* Compare preceding field */
+		if (memcmp(&node->preceding, copy, sizeof(node->preceding)) != 0) {
+			corrupted = true;
+		}
+
+		/* Compare size field */
+		if (memcmp(&node->size, copy + sizeof(node->preceding), sizeof(node->size)) != 0) {
+			corrupted = true;
+		}
+
+		if (corrupted) {
+			heap_dbg("ERROR: Quarantine metadata corruption detected\n");
+			mm_dump_node(node, "QUARANTINE CORRUPTED");
+			mfdbg("Expected: preceding=0x%08x, size=0x%08x\n", node->preceding, node->size);
+			mfdbg("Found:    preceding=0x%08x, size=0x%08x\n",
+				  *(FAR uint32_t *)copy, *(FAR uint32_t *)(copy + sizeof(node->preceding)));
+#ifdef CONFIG_DEBUG_MM_UAF_PANIC
+			PANIC();
+#endif
+		}
+		return;
+	}
+#endif
+
+	/* Standard verify (also fallback for small chunks) */
+	mm_uaf_verify_range(node, start, nbytes);
 }
 
 /****************************************************************************
@@ -91,8 +171,6 @@ static void quarantine_area(FAR struct mm_allocnode_s *node, FAR void **start, F
 static void quarantine_release_oldest(FAR struct mm_heap_s *heap)
 {
 	FAR struct mm_allocnode_s *node;
-	FAR void *start;
-	size_t nbytes;
 
 	DEBUGASSERT(heap->mm_qcount > 0);
 
@@ -102,18 +180,13 @@ static void quarantine_release_oldest(FAR struct mm_heap_s *heap)
 	heap->mm_qcount--;
 	heap->mm_qbytes -= node->size;
 
-	/* Check the chunk before anything else can touch it. Clear the allocated
-	 * bit first so that a report describes it as a free node rather than an
-	 * allocated one.
-	 */
+	/* STEP 1: Verify FIRST while MM_ALLOC_BIT is still set */
+	quarantine_verify_chunk(node);
 
+	/* STEP 2: THEN clear MM_ALLOC_BIT */
 	node->preceding &= ~MM_ALLOC_BIT;
 
-	quarantine_area(node, &start, &nbytes);
-	mm_uaf_verify_range(node, start, nbytes);
-
-	/* Now it may be merged with its neighbours and become reusable */
-
+	/* STEP 3: Now chunk is in free format, proceed with coalesce */
 	mm_free_coalesce(heap, (FAR struct mm_freenode_s *)node);
 }
 
@@ -199,8 +272,6 @@ bool mm_quarantine_contains(FAR struct mm_heap_s *heap, FAR struct mm_allocnode_
 
 bool mm_quarantine_add(FAR struct mm_heap_s *heap, FAR struct mm_allocnode_s *node)
 {
-	FAR void *start;
-	size_t nbytes;
 	uint16_t slot;
 
 	if (node->size > CONFIG_DEBUG_MM_QUARANTINE_MAX_SIZE) {
@@ -223,18 +294,8 @@ bool mm_quarantine_add(FAR struct mm_heap_s *heap, FAR struct mm_allocnode_s *no
 		quarantine_release_oldest(heap);
 	}
 
-	/* Lay down the pattern while nothing owns the chunk. The poison starts
-	 * after SIZEOF_MM_FREENODE to avoid corrupting flink/blink pointers that
-	 * will be stored when this chunk is released from quarantine and added
-	 * to the free list.
-	 */
-
-	quarantine_area(node, &start, &nbytes);
-	if (nbytes == 0) {
-		return false; /* nothing to check */
-	}
-
-	mm_uaf_poison_range(start, nbytes);
+	/* Lay down the pattern - unified function handles metadata internally */
+	quarantine_poison_chunk(node);
 
 	slot = (heap->mm_qhead + heap->mm_qcount) % QUARANTINE_SLOTS;
 	heap->mm_quarantine[slot] = node;
