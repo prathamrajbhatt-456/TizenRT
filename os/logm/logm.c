@@ -30,6 +30,9 @@
 #ifdef CONFIG_LOGM_TIMESTAMP
 #include <tinyara/clock.h>
 #endif
+#if defined(CONFIG_LOGCTL)
+#include <tinyara/logctl.h>
+#endif
 #include "logm.h"
 
 int g_logm_head;
@@ -82,6 +85,13 @@ int logm_internal(int flag, int indx, int priority, const char *fmt, va_list ap)
 	struct lib_outstream_s strm;
 #ifdef CONFIG_LOGM_TIMESTAMP
 	struct timespec ts;
+#endif
+
+#if defined(CONFIG_LOGCTL)
+	/* Check if common module logging is enabled at runtime */
+	if (!logctl_is_enabled(LOGCTL_MODULE_COMMON)) {
+		return 0;
+	}
 #endif
 
 	if (LOGM_STATUS(LOGM_READY) && !LOGM_STATUS(LOGM_BUFFER_RESIZE_REQ) \

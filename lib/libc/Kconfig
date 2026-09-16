@@ -512,3 +512,5 @@ config LIBC_SYMTAB
 	default n
 	---help---
 		Enable symbol table library. It can be used for getting symbol information.
+
+source "$LIBDIR/libc/logctl/Kconfig"

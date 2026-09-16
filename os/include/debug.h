@@ -76,6 +76,10 @@
 
 #include <syslog.h>
 
+#ifdef CONFIG_LOGCTL
+#include <tinyara/logctl.h>
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -429,24 +433,30 @@ int get_errno(void);
 #endif
 
 #ifdef CONFIG_DEBUG_FS_ERROR
-#define fdbg(format, ...)    dbg(format, ##__VA_ARGS__)
-#define flldbg(format, ...)  lldbg(format, ##__VA_ARGS__)
+#define fdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_FS)) { dbg(format, ##__VA_ARGS__); } } while(0)
+#define flldbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_FS)) { lldbg(format, ##__VA_ARGS__); } } while(0)
 #else
 #define fdbg(...)
 #define flldbg(...)
 #endif
 
 #ifdef CONFIG_DEBUG_FS_WARN
-#define fwdbg(format, ...)    wdbg(format, ##__VA_ARGS__)
-#define fllwdbg(format, ...)  llwdbg(format, ##__VA_ARGS__)
+#define fwdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_FS)) { wdbg(format, ##__VA_ARGS__); } } while(0)
+#define fllwdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_FS)) { llwdbg(format, ##__VA_ARGS__); } } while(0)
 #else
 #define fwdbg(...)
 #define fllwdbg(...)
 #endif
 
 #ifdef CONFIG_DEBUG_FS_INFO
-#define fvdbg(format, ...)   vdbg(format, ##__VA_ARGS__)
-#define fllvdbg(format, ...) llvdbg(format, ##__VA_ARGS__)
+#define fvdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_FS)) { vdbg(format, ##__VA_ARGS__); } } while(0)
+#define fllvdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_FS)) { llvdbg(format, ##__VA_ARGS__); } } while(0)
 #else
 #define fvdbg(...)
 #define fllvdbg(...)
@@ -501,24 +511,30 @@ int get_errno(void);
 #endif
 
 #ifdef CONFIG_DEBUG_MM_ERROR
-#define mdbg(format, ...)    dbg(format, ##__VA_ARGS__)
-#define mlldbg(format, ...)  lldbg(format, ##__VA_ARGS__)
+#define mdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_MM)) { dbg(format, ##__VA_ARGS__); } } while(0)
+#define mlldbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_MM)) { lldbg(format, ##__VA_ARGS__); } } while(0)
 #else
 #define mdbg(...)
 #define mlldbg(...)
 #endif
 
 #ifdef CONFIG_DEBUG_MM_WARN
-#define mwdbg(format, ...)    wdbg(format, ##__VA_ARGS__)
-#define mllwdbg(format, ...)  llwdbg(format, ##__VA_ARGS__)
+#define mwdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_MM)) { wdbg(format, ##__VA_ARGS__); } } while(0)
+#define mllwdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_MM)) { llwdbg(format, ##__VA_ARGS__); } } while(0)
 #else
 #define mwdbg(...)
 #define mllwdbg(...)
 #endif
 
 #ifdef CONFIG_DEBUG_MM_INFO
-#define mvdbg(format, ...)   vdbg(format, ##__VA_ARGS__)
-#define mllvdbg(format, ...) llvdbg(format, ##__VA_ARGS__)
+#define mvdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_MM)) { vdbg(format, ##__VA_ARGS__); } } while(0)
+#define mllvdbg(format, ...) \
+	do { if (logctl_is_enabled(LOGCTL_MODULE_MM)) { llvdbg(format, ##__VA_ARGS__); } } while(0)
 #else
 #define mvdbg(...)
 #define mllvdbg(...)

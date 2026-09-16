@@ -37,8 +37,8 @@
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
  * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
  * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
@@ -56,6 +56,9 @@
 
 #include <tinyara/config.h>
 #include <stdio.h>
+#include <syslog.h>
+#include <debug.h>
+#include <tinyara/logctl.h>
 
 /****************************************************************************
  * hello_main
@@ -68,5 +71,118 @@ int hello_main(int argc, char *argv[])
 #endif
 {
 	printf("Hello, World!!\n");
+
+	/* ============================================================
+	 * LOGCTL Filtering Test
+	 * ============================================================
+	 * The following messages go through different log paths.
+	 * All of them check logctl_is_enabled(LOGCTL_MODULE_COMMON).
+	 *
+	 * Test procedure:
+	 *   1. Run "hello" with common ENABLED → all messages appear
+	 *   2. "logctl disable common" then "hello" → syslog/logm messages
+	 *      disappear, printf stays
+	 *   3. "logctl enable common" then "hello" → all messages reappear
+	 * ============================================================ */
+
+	printf("\n=== LOGCTL Filtering Test ===\n");
+
+	/* --- syslog() path (lib_syslog.c → vsyslog) --- */
+	syslog(LOG_INFO, "[syslog] INFO message - filtered by logctl\n");
+	syslog(LOG_DEBUG, "[syslog] DEBUG message - filtered by logctl\n");
+	syslog(LOG_ERR, "[syslog] ERROR message - filtered by logctl\n");
+
+	/* --- lowsyslog() path (lib_lowsyslog.c → lowvsyslog) --- */
+	lowsyslog(LOG_INFO, "[lowsyslog] INFO message - filtered by logctl\n");
+	lowsyslog(LOG_ERR, "[lowsyslog] ERROR message - filtered by logctl\n");
+
+	/* --- dbg() macro path ---
+	 * When CONFIG_LOGM is enabled: dbg() → logm() → logm_internal() [has logctl check]
+	 * When CONFIG_LOGM is disabled: dbg() → syslog() [has logctl check]
+	 * Either way, filtered by logctl.
+	 */
+	dbg("[dbg] ERROR-level debug message - filtered by logctl\n");
+	wdbg("[wdbg] WARN-level debug message - filtered by logctl\n");
+	vdbg("[vdbg] INFO-level debug message - filtered by logctl\n");
+
+	/* --- Module-specific debug macros ---
+	 * These also go through dbg()/wdbg()/vdbg() → syslog or logm.
+	 * They are filtered by logctl (checks LOGCTL_MODULE_COMMON).
+	 */
+
+#ifdef CONFIG_DEBUG_MM_ERROR
+	mdbg("[mdbg] MM ERROR debug message - filtered by logctl\n");
+#endif
+#ifdef CONFIG_DEBUG_FS_ERROR
+	fdbg("[fdbg] FS ERROR debug message - filtered by logctl\n");
+#endif
+#ifdef CONFIG_DEBUG_FS_WARN
+	fwdbg("[fWdbg] FS WARN debug message - filtered by logctl\n");
+#endif
+#ifdef CONFIG_DEBUG_NET_ERROR
+	ndbg("[ndbg] NET ERROR debug message - filtered by logctl\n");
+#endif
+#ifdef CONFIG_DEBUG_BLE_ERROR
+	bledbg("[bledbg] BLE ERROR debug message - filtered by logctl\n");
+#endif
+#ifdef CONFIG_DEBUG_SMP_ERROR
+	smpdbg("[smpdbg] SMP ERROR debug message - filtered by logctl\n");
+#endif
+#ifdef CONFIG_DEBUG_PM_ERROR
+	pmdbg("[pmdbg] PM ERROR debug message - filtered by logctl\n");
+#endif
+
+	/* --- printf() path - NOT filtered by logctl --- */
+	printf("[printf] This message is NOT filtered by logctl\n");
+
+	/* ============================================================
+	 * Per-Module Enable/Disable Test
+	 * ============================================================
+	 * Each module's log is printed only if that specific module
+	 * is enabled via logctl. Use "logctl disable <module>" to
+	 * suppress individual modules.
+	 *
+	 * Test:
+	 *   "logctl disable mm"   → mm line disappears
+	 *   "logctl disable fs"    → fs line disappears
+	 *   "logctl disable net"   → net line disappears
+	 *   "logctl disable_all"   → all lines disappear
+	 *   "logctl enable_all"    → all lines reappear
+	 * ============================================================ */
+	printf("\n--- Per-Module Filtering Test ---\n");
+
+	if (logctl_is_enabled(LOGCTL_MODULE_COMMON)) {
+		printf("[common] Common module log - 'logctl disable common' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_MM)) {
+		printf("[mm] Memory management log - 'logctl disable mm' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_FS)) {
+		printf("[fs] File system log - 'logctl disable fs' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_NET)) {
+		printf("[net] Network log - 'logctl disable net' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_AUDIO)) {
+		printf("[audio] Audio log - 'logctl disable audio' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_BLE)) {
+		printf("[ble] BLE log - 'logctl disable ble' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_SCHED)) {
+		printf("[sched] Scheduler log - 'logctl disable sched' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_PM)) {
+		printf("[pm] Power management log - 'logctl disable pm' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_TASH)) {
+		printf("[tash] TASH log - 'logctl disable tash' to suppress\n");
+	}
+	if (logctl_is_enabled(LOGCTL_MODULE_WLAN)) {
+		printf("[wlan] WLAN log - 'logctl disable wlan' to suppress\n");
+	}
+
+	printf("\n=== End of LOGCTL Test ===\n\n");
+
 	return 0;
 }

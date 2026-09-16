@@ -64,6 +64,9 @@
 #if defined(CONFIG_LOGM) && defined(CONFIG_SYSLOG2LOGM)
 #include <tinyara/logm.h>
 #endif
+#if defined(CONFIG_LOGCTL)
+#include <tinyara/logctl.h>
+#endif
 #include "syslog/syslog.h"
 #if CONFIG_NFILE_STREAMS > 0
 #include "lib_internal.h"
@@ -228,6 +231,12 @@ int vsyslog(int priority, FAR const char *fmt, va_list ap)
 	/* Check if this priority is enabled */
 
 	if ((g_syslog_mask & LOG_MASK(priority)) != 0) {
+#if defined(CONFIG_LOGCTL)
+		/* Check if common module logging is enabled at runtime */
+		if (!logctl_is_enabled(LOGCTL_MODULE_COMMON)) {
+			return 0;
+		}
+#endif
 		/* Yes.. let vsylog_internal do the deed */
 #if defined(CONFIG_LOGM) && defined(CONFIG_SYSLOG2LOGM)
 		ret = logm_internal(LOGM_NORMAL, LOGM_UNKNOWN, priority, fmt, ap);

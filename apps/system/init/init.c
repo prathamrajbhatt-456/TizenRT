@@ -62,6 +62,10 @@
 extern void register_cxx_terminate_handler(void);
 #endif
 
+#ifdef CONFIG_LOGCTL
+#include <tinyara/logctl.h>
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -105,6 +109,11 @@ static void tash_register_cmds(void)
 
 #ifdef CONFIG_SECURITY_LEVEL_CMDS
 	security_level_register_utilcmds();
+#endif
+
+#ifdef CONFIG_LOGCTL
+	logctl_init();
+	logctl_register_tashcmds();
 #endif
 
 #ifdef CONFIG_DEBUG_SYSTEM_APP
