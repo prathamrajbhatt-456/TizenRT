@@ -239,6 +239,7 @@ SYSCALL_LOOKUP(socket,                  3, STUB_socket)
 SYSCALL_LOOKUP(prctl,                   5, STUB_prctl)
 
 SYSCALL_LOOKUP(fin_wait,		0, STUB_fin_wait)
+SYSCALL_LOOKUP(kasan_selftest,          1, STUB_kasan_selftest)
 
 /****************************************************************************
  * Private Functions

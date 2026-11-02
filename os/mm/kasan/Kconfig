@@ -1,0 +1,122 @@
+config MM_KASAN_REGIONS
+	int "Number of KASAN regions"
+	default 8
+	---help---
+		Maximum number of memory regions that can be registered with KASAN.
+		Registration of a region beyond this limit is refused with a
+		message and that region is left unchecked.
+
+config MM_KASAN_DISABLE_AT_BOOT
+	bool "Disable KASAN at boot time"
+	default y
+	---help---
+		When enabled, KASAN checking is disabled at boot time. This allows
+		the system to boot without KASAN detecting issues during initialization.
+
+		KASAN can be enabled later through a kasan command when you want to
+		start checking for memory errors. This is useful for:
+		- Avoiding false positives during boot
+		- Enabling KASAN only when running specific tests
+		- Production builds where boot-time checking is not needed
+
+		If disabled (n), KASAN starts checking immediately after the kernel
+		heap is registered during boot.
+
+		For now, keep this enabled (y) and use the kasan command to enable
+		checking when needed.
+
+config MM_KASAN_SELFTEST
+	bool "Self test"
+	default n
+	---help---
+		Build kernel/debug/kasan_selftest.c, which performs one deliberate
+		memory error against the kernel heap on request, and the
+		kasan_test application which drives it.
+
+		A system with no memory errors and a system where instrumentation
+		was never emitted are both silent, so a clean boot on its own says
+		nothing about whether KASan is working. This is what tells them
+		apart. Enable it for bring up and for a CI job, and turn it off
+		once the port is trusted on a board.
+
+		Every case but the in bounds one is expected to report and to
+		assert. That is the pass condition. Do not enable this on a
+		product image.
+
+		Requires BUILTIN_APPS so the application registers as a TASH
+		command.
+
+config MM_KASAN_START_MANUAL
+	bool "Leave checking off until it is asked for"
+	default n
+	---help---
+		Register the regions and maintain the shadow map as usual, but do
+		not begin reporting until something calls kasan_start().
+
+		Without this, checking goes live the moment the first heap
+		registers, which is very early in os_start(). The whole of boot
+		then runs instrumented: drivers, Wi-Fi, the filesystem and the
+		binary manager. That is what you want eventually, but it is not
+		where to begin, because a report from any of them stops the board
+		before it reaches a prompt.
+
+		With this set the board boots silently and you arm KASan when you
+		are ready, so a report can only come from the code you are
+		testing.
+
+		The shadow map is still maintained while disarmed. Every
+		allocation and free keeps it accurate, so when you do arm, blocks
+		handed out during boot are tracked correctly and a later use
+		after free of one of them is still caught.
+
+		What is lost is anything that went wrong while disarmed: KASan
+		reports at the moment of access, never retroactively. Once your
+		own tests are clean, boot once with this off, because the boot
+		path is where driver and vendor bugs surface.
+
+		The kasan_test application arms and disarms it from the shell.
+
+config MM_KASAN_DISABLE_NULL_POINTER_CHECK
+	bool "Do not check for NULL pointer access"
+	default n
+	---help---
+		When enabled, KASAN will not check for NULL pointer accesses.
+
+config MM_KASAN
+	bool "KASAN support"
+	default y
+	---help---
+		Enable Kernel Address Sanitizer (KASAN) support for detecting
+		memory errors such as out-of-bounds accesses and use-after-free.
+
+config MM_KASAN_INSTRUMENT
+	bool "Instrument code for KASAN"
+	default y
+	depends on MM_KASAN
+	---help---
+		Enable instrumentation of code for KASAN. This adds checks to
+		memory accesses to detect errors.
+
+config MM_KASAN_GENERIC
+	bool "Generic KASAN mode"
+	default y
+	depends on MM_KASAN
+	---help---
+		Enable generic KASAN mode which uses a shadow memory region to
+		track memory accesses.
+
+config MM_KASAN_INSTRUMENT_ALL
+	bool "Instrument all code for KASAN"
+	default y
+	depends on MM_KASAN_INSTRUMENT
+	---help---
+		Instrument all code including kernel internals. Without this,
+		only application code is instrumented.
+
+config MM_KASAN_DISABLE_READS_CHECK
+	bool "Disable checking of read accesses"
+	default y
+	depends on MM_KASAN_INSTRUMENT
+	---help---
+		When enabled, KASAN will only check write accesses, not reads.
+		This reduces overhead but may miss some memory errors.

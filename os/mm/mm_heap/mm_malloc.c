@@ -59,6 +59,7 @@
 #include <debug.h>
 
 #include <tinyara/mm/mm.h>
+#include <tinyara/mm/kasan.h>
 
 #ifdef CONFIG_DEBUG_MM_HEAPINFO
 #include  <tinyara/sched.h>
@@ -293,6 +294,13 @@ retry_after_gc:
 		heapinfo_update_total_size(heap, allocnode->size, allocnode->pid);
 #endif
 		ret = (void *)((char *)allocnode + SIZEOF_MM_ALLOCNODE);
+
+		/* Open up the chunk that is handed out. The remainder that went
+		 * back to the free list was never unpoisoned, since a region
+		 * starts out wholly poisoned and only live allocations are cleared.
+		 */
+
+		ret = kasan_unpoison(ret, allocnode->size - SIZEOF_MM_ALLOCNODE);
 	}
 
 	mm_givesemaphore(heap);

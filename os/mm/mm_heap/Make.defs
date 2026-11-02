@@ -77,3 +77,13 @@ endif
 
 DEPPATH += --dep-path mm_heap
 VPATH += :mm_heap
+
+# Exclude heap manager from KASAN instrumentation.
+# The allocator must access its own metadata (allocnode headers) which are
+# kept poisoned. Instrumenting the heap manager would cause false positives
+# when it reads/writes its internal structures, and could create infinite
+# recursion in the shadow lookup path.
+
+ifeq ($(CONFIG_MM_KASAN_INSTRUMENT_ALL),y)
+CFLAGS += -fno-sanitize=kernel-address
+endif

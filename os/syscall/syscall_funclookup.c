@@ -103,6 +103,7 @@
 
 #include <tinyara/errno.h>
 #include <tinyara/clock.h>
+#include <tinyara/mm/kasan.h>
 
 /****************************************************************************
  * Pre-processor Definitions

@@ -28,6 +28,7 @@
 #include <queue.h>
 #include <sys/types.h>
 #include <tinyara/mm/mm.h>
+#include <tinyara/mm/kasan.h>
 #include <tinyara/mm/heap_regioninfo.h>
 #include <arch/chip/memory_region.h>
 #include <tinyara/binfmt/elf.h>
@@ -344,6 +345,15 @@ static void print_info(struct mm_heap_s *heap, int leak_cnt, int broken_cnt)
 
 		mm_takesemaphore(heap);
 
+		/* The leak checker walks every node in the heap, free ones included, and
+		 * then scans raw RAM. Both read memory that KASan has poisoned on
+		 * purpose: a free chunk, and the header in front of every live chunk.
+		 * This file is outside os/mm and so is instrumented, so checking has to
+		 * be off for the duration or the checker report
+		 */
+
+		kasan_stop();
+
 #if CONFIG_KMM_REGIONS > 1
 		int region;
 #else
@@ -378,6 +388,8 @@ static void print_info(struct mm_heap_s *heap, int leak_cnt, int broken_cnt)
 				}
 			}
 		}
+		kasan_start();
+
 
 		mm_givesemaphore(heap);
 

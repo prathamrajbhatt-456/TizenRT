@@ -78,6 +78,7 @@ CSRCS  =
 DEPPATH = --dep-path .
 VPATH = .
 
+include kasan/Make.defs
 include mm_heap/Make.defs
 include umm_heap/Make.defs
 include kmm_heap/Make.defs

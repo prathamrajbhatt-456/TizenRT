@@ -1,4 +1,11 @@
 serial_ports:
+  /dev/ttyACM0:
+    chip_id: '0x7236'
+    debug: '3'
+    flash_id: '0x184020'
+    last_updated: '2026-11-02T11:08:38Z'
+    link_type: '0'
+    work_baudrate: 1500000
   /dev/ttyUSB2:
     chip_id: '0x7236'
     debug: '3'

@@ -368,6 +368,7 @@ uintptr_t STUB_prctl(int nbr, uintptr_t parm1, uintptr_t parm2,
 					 uintptr_t parm3, uintptr_t parm4, uintptr_t parm5);
 
 uintptr_t STUB_fin_wait(int nbr);
+uintptr_t STUB_kasan_selftest(int nbr, uintptr_t parm1);
 
 /****************************************************************************
  * Public Data

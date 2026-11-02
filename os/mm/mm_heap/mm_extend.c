@@ -59,10 +59,16 @@
 #include <assert.h>
 
 #include <tinyara/mm/mm.h>
+#include <tinyara/mm/kasan.h>
 
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
+
+/* mm_extend() is not instrumented. It grows a region whose shadow was sized
+ * at registration, so the extension is not covered. Making it work needs a
+ * region re-registration path that does not exist yet.
+ */
 
 #define MIN_EXTEND (2 * SIZEOF_MM_ALLOCNODE)
 

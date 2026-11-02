@@ -67,4 +67,13 @@ CSRCS += kmm_heapmember.c
 
 DEPPATH += --dep-path kmm_heap
 VPATH += :kmm_heap
+
+# Exclude kernel heap manager from KASAN instrumentation.
+# The allocator must access its own metadata (allocnode headers) which are
+# kept poisoned. Instrumenting the heap manager would cause false positives
+# when it reads/writes its internal structures.
+
+ifeq ($(CONFIG_MM_KASAN_INSTRUMENT_ALL),y)
+CFLAGS += -fno-sanitize=kernel-address
+endif
 endif
