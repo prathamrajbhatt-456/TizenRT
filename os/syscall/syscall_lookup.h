@@ -240,6 +240,9 @@ SYSCALL_LOOKUP(prctl,                   5, STUB_prctl)
 
 SYSCALL_LOOKUP(fin_wait,		0, STUB_fin_wait)
 SYSCALL_LOOKUP(kasan_selftest,          1, STUB_kasan_selftest)
+SYSCALL_LOOKUP(kasan_start,             0, STUB_kasan_start)
+SYSCALL_LOOKUP(kasan_stop,              0, STUB_kasan_stop)
+SYSCALL_LOOKUP(kasan_is_armed,          0, STUB_kasan_is_armed)
 
 /****************************************************************************
  * Private Functions

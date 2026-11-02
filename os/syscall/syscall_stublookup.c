@@ -369,6 +369,9 @@ uintptr_t STUB_prctl(int nbr, uintptr_t parm1, uintptr_t parm2,
 
 uintptr_t STUB_fin_wait(int nbr);
 uintptr_t STUB_kasan_selftest(int nbr, uintptr_t parm1);
+uintptr_t STUB_kasan_start(int nbr);
+uintptr_t STUB_kasan_stop(int nbr);
+uintptr_t STUB_kasan_is_armed(int nbr);
 
 /****************************************************************************
  * Public Data

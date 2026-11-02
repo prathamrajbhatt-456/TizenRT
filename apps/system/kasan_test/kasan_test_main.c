@@ -30,6 +30,11 @@
 
 #include <tinyara/mm/kasan.h>
 
+#ifdef CONFIG_LIB_SYSCALL
+#include <sys/syscall.h>
+#include <syscall.h>
+#endif
+
 /****************************************************************************
  * Private Types
  ****************************************************************************/
@@ -91,28 +96,71 @@ static void kasan_test_usage(void)
 	printf("still tracked.\n");
 }
 
-/* Reporting control. Called straight through: this is a flat build, so the
- * application and the kernel are one image and one link.
+/* Reporting control.
+ *
+ * Flat build: the application and the kernel are one image and one link, so
+ * a direct call reaches the one gate that exists.
+ *
+ * Partitioned build: this TASH builtin is linked into the common image, where
+ * libumm's own copy of hook.c is also extracted (to satisfy kasan_register and
+ * kasan_poison from the user mm code) and defines kasan_start/stop/is_armed
+ * with the same names. Those user-copy definitions are already in the link by
+ * the time libapps is scanned, so the syscall proxies in libproxies never win
+ * the binding, and a direct call would reach the user copy's gate, which
+ * guards nothing. Invoke the syscalls directly instead, so the commands reach
+ * the kernel copy: the gate that guards the kernel heap and is armed at boot.
  */
+
+#ifdef CONFIG_LIB_SYSCALL
+static void app_kasan_start(void)
+{
+	(void)sys_call0((unsigned int)SYS_kasan_start);
+}
+
+static void app_kasan_stop(void)
+{
+	(void)sys_call0((unsigned int)SYS_kasan_stop);
+}
+
+static bool app_kasan_is_armed(void)
+{
+	return sys_call0((unsigned int)SYS_kasan_is_armed) != 0;
+}
+#else
+static void app_kasan_start(void)
+{
+	kasan_start();
+}
+
+static void app_kasan_stop(void)
+{
+	kasan_stop();
+}
+
+static bool app_kasan_is_armed(void)
+{
+	return kasan_is_armed();
+}
+#endif
 
 static int kasan_test_control(FAR const char *cmd)
 {
 	if (strcmp(cmd, "arm") == 0) {
-		kasan_start();
+		app_kasan_start();
 		printf("kasan_test: armed - reporting is on\n");
 		return EXIT_SUCCESS;
 	}
 
 	if (strcmp(cmd, "disarm") == 0) {
-		kasan_stop();
+		app_kasan_stop();
 		printf("kasan_test: disarmed - reporting is off\n");
 		return EXIT_SUCCESS;
 	}
 
 	if (strcmp(cmd, "status") == 0) {
-		printf("kasan_test: reporting is %s\n", kasan_is_armed() ? "ON" : "off");
+		printf("kasan_test: reporting is %s\n", app_kasan_is_armed() ? "ON" : "off");
 
-		if (!kasan_is_armed()) {
+		if (!app_kasan_is_armed()) {
 			printf("            the shadow map is still being maintained;\n");
 			printf("            run 'kasan_test arm' to begin reporting.\n");
 		}
