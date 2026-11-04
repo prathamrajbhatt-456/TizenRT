@@ -70,6 +70,7 @@
 
 #include <tinyara/mm/kasan.h>
 #include <tinyara/mm/mm.h>
+#include <tinyara/binfmt/elf.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -313,6 +314,103 @@ static void kasan_show_memory(FAR const uint8_t *addr, size_t size)
 }
 
 /****************************************************************************
+ * Name: kasan_report_image
+ *
+ * Description:
+ *   Tell which image the reported PC belongs to and name the addr2line ELF
+ *   that resolves it, so the address printed by the "detected from" line
+ *   can be symbolized without hunting the runtime load base in the boot
+ *   log:
+ *
+ *   - Kernel image: linked at its runtime address, so the raw PC resolves
+ *     directly with tinyara.axf. For user-image PCs the binfmt section
+ *     table is consulted and the printed offset from the image text start
+ *     is load-position independent; resolve it as addr2line -e
+ *     build/output/bin/<bin_name>_dbg (link_text_vaddr + offset), where
+ *     the link text vaddr is a build constant.
+ *   - User image: the whole image is one loadable binary, so the offset
+ *     from its own (link-time constant) text start is printed directly;
+ *     resolve it as addr2line -e build/output/bin/<CONFIG_COMMON_BINARY_NAME>_dbg
+ *     -f -C <offset> - the dbg ELF is a relocatable object with .text at
+ *     vaddr 0, so the offset can be fed to addr2line as is.
+ *
+ ****************************************************************************/
+
+/* The kernel variant is used both when __KERNEL__ is defined (protected /
+ * loadable kernel pass) and for flat builds: in a flat build os/mm/Makefile
+ * compiles this file without -D__KERNEL__ (only the protected kbin pass
+ * gets $(KDEFINE)), but there is no separate user image at all - every PC
+ * including TASH lives in tinyara.axf. */
+
+#if defined(__KERNEL__) || !defined(CONFIG_BUILD_PROTECTED)
+extern uint32_t _stext;			/* linker-script symbols: kernel text bounds */
+extern uint32_t _etext;
+
+static void kasan_report_image(FAR void *return_address)
+{
+	uintptr_t va = (uintptr_t)return_address & ~(uintptr_t)1;	/* mask Thumb bit */
+
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	uint32_t text_base = 0;
+	uint32_t text_size = 0;
+	FAR const char *bin_name = NULL;
+	int idx = elf_find_image_by_addr(va, &text_base, &text_size, &bin_name);
+
+	if (idx >= 0) {
+		/* The *_dbg ELF is a relocatable object with .text linked at
+		 * vaddr 0, so the offset from the runtime text start is also
+		 * its virtual address inside that ELF: addr2line resolves it
+		 * as given, no load-base math needed. */
+
+		kasan_report_alert("pc belongs to image %d \"%s\" (text 0x%08x size %u), offset from text start +0x%x (addr2line -e build/output/bin/%s_dbg -f -C 0x%x)\n", idx, bin_name ? bin_name : "?", text_base, text_size, (uint32_t)(va - text_base), bin_name ? bin_name : "?", (uint32_t)(va - text_base));
+		return;
+	}
+#endif
+
+	if ((uintptr_t)&_stext <= va && va < (uintptr_t)&_etext) {
+		/* tinyara.axf is linked at its runtime address: the raw PC resolves directly. */
+
+		kasan_report_alert("pc belongs to kernel image (addr2line -e build/output/bin/tinyara.axf -f -C 0x%x)\n", (uint32_t)va);
+		return;
+	}
+
+	kasan_report_alert("pc not in any loaded image\n");
+}
+#else
+/* The userspace kasan hooks live in the common binary, whose dbg ELF is
+ * named by CONFIG_COMMON_BINARY_NAME in the shared .config - the same name
+ * os/dutils.sh uses for build/output/bin/<name>_dbg. The dbg ELF is a
+ * relocatable object with .text at vaddr 0, so the offset printed here can
+ * be fed to addr2line as is. */
+
+#ifdef CONFIG_SUPPORT_COMMON_BINARY
+#define KASAN_IMAGE_ELF "build/output/bin/" CONFIG_COMMON_BINARY_NAME "_dbg"
+#else
+#define KASAN_IMAGE_ELF "this image's <bin_name>_dbg"
+#endif
+
+extern uint32_t _stext_flash;		/* userspace linker script: this image's text bounds */
+extern uint32_t _etext_flash;
+
+static void kasan_report_image(FAR void *return_address)
+{
+	uintptr_t va = (uintptr_t)return_address & ~(uintptr_t)1;	/* mask Thumb bit */
+
+	if ((uintptr_t)&_stext_flash <= va && va < (uintptr_t)&_etext_flash) {
+		kasan_report_alert("pc belongs to this user image, offset from text start +0x%x (addr2line -e %s -f -C 0x%x)\n", (uint32_t)(va - (uintptr_t)&_stext_flash), KASAN_IMAGE_ELF, (uint32_t)(va - (uintptr_t)&_stext_flash));
+		return;
+	}
+
+	/* Outside this image the PC is normally the kernel image. Kernel
+	 * symbols are not visible to the user image, so its range cannot be
+	 * checked here, but tinyara.axf is linked at its runtime address, so
+	 * the raw PC resolves directly. */
+
+	kasan_report_alert("pc not in this user image, may be kernel image (addr2line -e build/output/bin/tinyara.axf -f -C 0x%x)\n", (uint32_t)va);
+}
+#endif
+
+/****************************************************************************
  * Name: kasan_report
  *
  * Description:
@@ -333,6 +431,7 @@ static void kasan_report(FAR const void *addr, size_t size, bool is_write, FAR v
 
 	kasan_report_alert("invalid %s of size %zu at address %p\n", is_write ? "write" : "read", size, addr);
 	kasan_report_alert("detected from %p\n", return_address);
+	kasan_report_image(return_address);
 
 	kasan_show_memory(addr, size);
 

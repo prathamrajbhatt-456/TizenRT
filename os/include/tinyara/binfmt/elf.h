@@ -151,6 +151,28 @@ struct bin_addr_info_s {
 #endif
 };
 typedef struct bin_addr_info_s bin_addr_info_t;
+
+/****************************************************************************
+ * Name: elf_find_image_by_addr
+ *
+ * Description:
+ *   Find the loaded user image (common binary is index 0, apps 1..N) whose
+ *   text section contains the given runtime address. Read-only walk, safe
+ *   from interrupt context. Used to symbolize KASan report addresses.
+ *
+ * Input Parameters:
+ *   pc         - Runtime address to locate (Thumb bit must be masked off)
+ *   text_base  - Optional: returns the image's runtime text start address
+ *   text_size  - Optional: returns the image's text size
+ *   bin_name   - Optional: returns the image's registered binary name; the
+ *                matching addr2line ELF is build/output/bin/<bin_name>_dbg
+ *
+ * Return Value:
+ *   The image index, or -1 if no loaded image covers the address.
+ *
+ ****************************************************************************/
+
+int elf_find_image_by_addr(uint32_t pc, FAR uint32_t *text_base, FAR uint32_t *text_size, FAR const char **bin_name);
 #endif
 
 /****************************************************************************

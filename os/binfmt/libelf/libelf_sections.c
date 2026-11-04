@@ -218,6 +218,38 @@ void *elf_find_text_section_addr(int bin_idx)
 	return NULL;
 }
 
+int elf_find_image_by_addr(uint32_t pc, FAR uint32_t *text_base, FAR uint32_t *text_size, FAR const char **bin_name)
+{
+	int bin_idx;
+
+	for (bin_idx = 0; bin_idx <= CONFIG_NUM_APPS; bin_idx++) {
+		uint32_t base = g_bin_addr_list[bin_idx].text_addr;
+		uint32_t size = g_bin_addr_list[bin_idx].text_size;
+
+		/* Slot 0 is the common binary; empty slots have text_addr == 0.
+		 * Read-only walk over static data, so it is safe from interrupt
+		 * context where KASan reports can be raised.
+		 */
+
+		if (base != 0 && size != 0 && pc >= base && pc < base + size) {
+			if (text_base != NULL) {
+				*text_base = base;
+			}
+			if (text_size != NULL) {
+				*text_size = size;
+			}
+			if (bin_name != NULL) {
+				/* The registered binary name also names the addr2line ELF:
+				 * build/output/bin/<bin_name>_dbg. */
+
+				*bin_name = BIN_NAME(bin_idx);
+			}
+			return bin_idx;
+		}
+	}
+	return -1;
+}
+
 void elf_save_bin_section_addr(struct binary_s *bin)
 {
 	if (bin != NULL) {

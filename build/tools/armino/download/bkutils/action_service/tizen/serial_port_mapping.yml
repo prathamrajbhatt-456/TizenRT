@@ -3,7 +3,7 @@ serial_ports:
     chip_id: '0x7236'
     debug: '3'
     flash_id: '0x184020'
-    last_updated: '2026-11-03T15:34:00Z'
+    last_updated: '2026-11-04T09:43:58Z'
     link_type: '0'
     work_baudrate: 1500000
   /dev/ttyUSB2:
