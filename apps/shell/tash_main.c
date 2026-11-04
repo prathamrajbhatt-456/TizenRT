@@ -301,7 +301,7 @@ char *tash_read_input_line(int fd)
 		}
 #endif
 	} while (PREV_CHAR != ASCII_LF);
-
+    shdbg("TASH: ENTERED WHILE LOOP\n");
 	PREV_CHAR = ASCII_NUL;
 	return buffer;
 }

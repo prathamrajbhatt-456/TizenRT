@@ -140,16 +140,20 @@ int mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart, size_t heapsiz
 	}
 	heapsize = heapend - heapbase;
 
-	/* Hand the region to KASan before the heap is laid out over it, but only
-	 * if this is the kernel heap.
+	/* Hand the region to KASan before the heap is laid out over it. Every
+	 * heap region is registered, not only the kernel heap: binfmt calls
+	 * mm_initialize() to build the heap of every application it loads when
+	 * CONFIG_APP_BINARY_SEPARATION is set, and the allocator hooks run for
+	 * every heap, so a registered application heap keeps an accurate shadow
+	 * for as long as it exists. binfmt unregisters an application heap when
+	 * it frees its partition back to the kernel heap, and kasan_register()
+	 * itself refuses regions that are too small or out of slots, leaving
+	 * those uncovered.
 	 *
-	 * This port is flat only, so there is one memory manager and one image.
-	 * The test is still on which heap is being built rather than on the
-	 * build model, because binfmt calls mm_initialize() to build the user
-	 * heap of every application it loads when CONFIG_APP_BINARY_SEPARATION
-	 * is set, which a flat build may also do. Registering those would carve
-	 * a shadow out of an application's heap and poison memory that nothing
-	 * ever unpoisons.
+	 * The unregister first makes re-initialization of the same region, as
+	 * happens when a binary is reloaded, replace the old region instead of
+	 * being refused as an overlap; when nothing is registered it is a
+	 * no-op.
 	 *
 	 * kasan_register() carves its shadow out of the tail of the region and
 	 * reduces heapsize by that much, so heapend has to be recomputed from
@@ -157,16 +161,15 @@ int mm_addregion(FAR struct mm_heap_s *heap, FAR void *heapstart, size_t heapsiz
 	 * put the heap and its own shadow on top of each other.
 	 */
 
-	if (heap >= g_kmmheap && heap < &g_kmmheap[CONFIG_KMM_NHEAPS]) {
-		kasan_register((FAR void *)heapbase, &heapsize);
+	kasan_unregister((FAR void *)heapbase);
+	heap->mm_kasan_region = kasan_register((FAR void *)heapbase, &heapsize);
 
-		heapend = MM_ALIGN_DOWN(heapbase + heapsize);
-		heapsize = heapend - heapbase;
+	heapend = MM_ALIGN_DOWN(heapbase + heapsize);
+	heapsize = heapend - heapbase;
 
-		if (heapbase >= (uintptr_t)heapend) {
-			mdbg("ERROR : region too small once the KASan shadow is carved out.\n");
-			return -EINVAL;
-		}
+	if (heapbase >= (uintptr_t)heapend) {
+		mdbg("ERROR : region too small once the KASan shadow is carved out.\n");
+		return -EINVAL;
 	}
 
 	mlldbg("Region %d: base=%p size=%u\n", IDX + 1, heapstart, heapsize);

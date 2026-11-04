@@ -117,6 +117,9 @@ FAR void *mm_realloc(FAR struct mm_heap_s *heap, FAR void *oldmem, size_t size, 
 	size_t nextsize = 0;
 #endif
 	FAR void *newmem;
+
+	kasan_attach_heap(heap);
+
 	/* If oldmem is NULL, then realloc is equivalent to malloc */
 
 	if (!oldmem) {

@@ -85,8 +85,26 @@ void kasan_init_early(void);
  ****************************************************************************/
 
 void kasan_poison(FAR const void *addr, size_t size);
-void kasan_register(FAR void *addr, FAR size_t *size);
+FAR void *kasan_register(FAR void *addr, FAR size_t *size);
 void kasan_unregister(FAR void *addr);
+
+/****************************************************************************
+ * Name: kasan_attach_heap / kasan_import
+ *
+ * Description:
+ *   Import into this image's region table the region that the kernel
+ *   memory manager registered for this heap and recorded in the heap
+ *   structure itself. The user image compiles the same allocator but runs
+ *   its own KASan runtime with its own table; without the import its hooks
+ *   would leave the shared shadow stale and its own instrumented accesses
+ *   would go unchecked. On the kernel side the region is already in the
+ *   table and the call does nothing.
+ *
+ ****************************************************************************/
+
+struct mm_heap_s;
+void kasan_attach_heap(FAR struct mm_heap_s *heap);
+void kasan_import(FAR void *desc);
 
 /****************************************************************************
  * Name: kasan_start
@@ -128,8 +146,9 @@ bool kasan_is_armed(void);
 #define kasan_is_armed()		false
 #define kasan_unpoison(addr, size)	((FAR void *)(addr))
 #define kasan_poison(addr, size)
-#define kasan_register(addr, size)
+#define kasan_register(addr, size)	(NULL)
 #define kasan_unregister(addr)
+#define kasan_attach_heap(heap)
 #endif
 
 #undef EXTERN

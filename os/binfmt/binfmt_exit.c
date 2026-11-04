@@ -65,6 +65,7 @@
 #endif
 
 #include <tinyara/mm/mm.h>
+#include <tinyara/mm/kasan.h>
 #include <tinyara/kmalloc.h>
 #include <tinyara/binfmt/binfmt.h>
 
@@ -106,6 +107,20 @@ int binfmt_exit(FAR struct binary_s *bin)
 
 	DEBUGASSERT(bin != NULL);
 
+#ifdef CONFIG_APP_BINARY_SEPARATION
+	/* Remove the KASan region registered for this application's heap before
+	 * the partition goes away. The region descriptor was carved from the
+	 * tail of the partition itself, and every instrumented access walks the
+	 * region table and dereferences the descriptors. unload_module() tears
+	 * down the MPU coverage of the partition and frees its section memory,
+	 * so unregistering only after it would leave a descriptor pointing at
+	 * unmapped memory, and the next instrumented access in any context
+	 * would fault inside kasan_mem_to_shadow().
+	 */
+
+	kasan_unregister((FAR void *)bin->uheap->mm_heapstart[0]);
+#endif
+
 	/* Unload the module */
 
 	ret = unload_module(bin);
@@ -137,6 +152,7 @@ int binfmt_exit(FAR struct binary_s *bin)
 	if (!bin->reload) {
 #endif
 		mm_remove_app_heap_list(bin->uheap);
+
 		/* Free the RAM partition into which this app was loaded */
 		kmm_free((void *)bin->ramstart);
 		bin->ramstart = 0;

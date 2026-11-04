@@ -166,9 +166,20 @@ static inline FAR uintptr_t *kasan_mem_to_shadow(FAR const void *ptr, size_t siz
 	uintptr_t addr = (uintptr_t)ptr;
 	size_t i;
 
-	for (i = 0; i < g_region_count; i++) {
-		if (addr >= g_region[i]->begin && addr < g_region[i]->end) {
-			if (addr + size > g_region[i]->end) {
+	/* Walked in reverse registration order. A nested region is registered
+	 * after the region which encloses it, so the first match from the end
+	 * is the innermost one. This matters in the kernel image, whose table
+	 * holds both the enclosing kernel heap region and the application
+	 * heaps carved out of it: a poison or unpoison the kernel's allocator
+	 * performs on a block of an application heap must land in the nested
+	 * region's shadow, which is the one the application image checks
+	 * against. Matching the enclosing region first would silently update
+	 * a shadow nobody consults and leave the block poisoned.
+	 */
+
+	for (i = g_region_count; i > 0; i--) {
+		if (addr >= g_region[i - 1]->begin && addr < g_region[i - 1]->end) {
+			if (addr + size > g_region[i - 1]->end) {
 				/* Straddles the end of the region. Indexing the shadow
 				 * here would run off the end of the shadow array, so
 				 * refuse the lookup. The access is out of bounds of the
@@ -176,14 +187,14 @@ static inline FAR uintptr_t *kasan_mem_to_shadow(FAR const void *ptr, size_t siz
 				 * heap overflow, and is left to the MPU to catch.
 				 */
 
-				DEBUGASSERT(addr + size <= g_region[i]->end);
+				DEBUGASSERT(addr + size <= g_region[i - 1]->end);
 				return NULL;
 			}
 
-			addr -= g_region[i]->begin;
+			addr -= g_region[i - 1]->begin;
 			addr /= KASAN_SHADOW_SCALE;
 			*bit = addr % KASAN_BITS_PER_WORD;
-			return &g_region[i]->shadow[addr / KASAN_BITS_PER_WORD];
+			return &g_region[i - 1]->shadow[addr / KASAN_BITS_PER_WORD];
 		}
 	}
 
@@ -341,10 +352,72 @@ FAR void *kasan_unpoison(FAR const void *addr, size_t size)
 }
 
 /****************************************************************************
+ * Name: kasan_register_nested
+ *
+ * Description:
+ *   Register a region which lies entirely inside an already registered
+ *   one. See kasan_register(). The descriptor and its shadow are laid out
+ *   exactly as for a top level region, and the region is entered in this
+ *   image's table too; what differs is only that no overlap is possible by
+ *   construction, so the overlap search is skipped, and the shadow is
+ *   filled directly instead of via kasan_poison(), whose lookup would
+ *   resolve to the enclosing region otherwise.
+ *
+ *   The entry lands behind the enclosing one, and kasan_mem_to_shadow()
+ *   walks the table in reverse, so lookups for addresses inside this
+ *   region resolve to its shadow. Both the image which hands out blocks
+ *   of it (the kernel, for the task stacks and stdio files it creates)
+ *   and the image which checks accesses to it (the application image,
+ *   through kasan_import()) therefore read and update the same shadow.
+ *
+ *   The caller holds g_lock.
+ *
+ * Returned Value:
+ *   The region descriptor, with *size reduced by the shadow, exactly as
+ *   kasan_register() does.
+ *
+ ****************************************************************************/
+
+static FAR void *kasan_register_nested(FAR void *addr, FAR size_t *size)
+{
+	FAR struct kasan_region_s *region;
+
+	region = (FAR struct kasan_region_s *)((FAR char *)addr + *size - KASAN_REGION_SIZE(*size));
+
+	region->begin = (uintptr_t)addr;
+	region->end = region->begin + *size;
+
+	/* The whole shadow, including the spare word behind shadow[0] which
+	 * covers the trailing partial granule, is filled. The descriptor ends
+	 * exactly at the region end, so the fill cannot run past it.
+	 */
+
+	memset(region->shadow, 0xff, KASAN_SHADOW_SIZE(*size) + KASAN_BYTES_PER_WORD);
+
+	/* Enter the region into this image's table as well, behind the region
+	 * which encloses it. This is what makes the kernel side of the dual
+	 * image setup keep the one shared shadow correct: the kernel hands out
+	 * blocks of an application heap (the task stacks and the stdio files
+	 * of every loaded application, among others) and the poison and
+	 * unpoison those calls do must reach the nested region's shadow, which
+	 * is the one the application image checks against. With the entry in
+	 * the table, kasan_mem_to_shadow() resolves to the innermost region
+	 * and the updates land in the shadow both images share. The caller
+	 * has already verified there is a free slot.
+	 */
+
+	g_region[g_region_count++] = region;
+
+	*size -= KASAN_REGION_SIZE(*size);
+
+	return (FAR void *)region;
+}
+
+/****************************************************************************
  * Name: kasan_register
  ****************************************************************************/
 
-void kasan_register(FAR void *addr, FAR size_t *size)
+FAR void *kasan_register(FAR void *addr, FAR size_t *size)
 {
 	FAR struct kasan_region_s *region;
 	irqstate_t flags;
@@ -356,7 +429,7 @@ void kasan_register(FAR void *addr, FAR size_t *size)
 
 	if (addr == NULL || *size < KASAN_MIN_REGION_SIZE) {
 		kasan_alert("region %p size %zu too small to register\n", addr, *size);
-		return;
+		return NULL;
 	}
 
 	/* kasan_is_poisoned() derives an access's offset within its granule
@@ -368,7 +441,7 @@ void kasan_register(FAR void *addr, FAR size_t *size)
 
 	if (((uintptr_t)addr & (KASAN_SHADOW_SCALE - 1)) != 0) {
 		kasan_alert("region %p is not %zu byte aligned\n", addr, (size_t)KASAN_SHADOW_SCALE);
-		return;
+		return NULL;
 	}
 
 	flags = spin_lock_irqsave(&g_lock);
@@ -381,19 +454,45 @@ void kasan_register(FAR void *addr, FAR size_t *size)
 	if (g_region_count >= CONFIG_MM_KASAN_REGIONS) {
 		spin_unlock_irqrestore(&g_lock, flags);
 		kasan_alert("no free region slot for %p, raise CONFIG_MM_KASAN_REGIONS above %d\n", addr, CONFIG_MM_KASAN_REGIONS);
-		return;
+		return NULL;
 	}
 
 	/* Two regions describing the same memory would each carve a shadow and
 	 * the lookup would always find the first, leaving the second stale. That
-	 * is far harder to diagnose than a refusal, so reject the overlap.
+	 * is far harder to diagnose than a refusal, so a partial overlap is
+	 * rejected.
+	 *
+	 * A region which lies entirely inside an already registered one is a
+	 * different case: the protected build carves the application RAM
+	 * partitions, and with them the application heaps which binfmt builds
+	 * with mm_initialize(), out of a kernel heap region, so every
+	 * application heap is contained in the kernel region its partition was
+	 * allocated from. The nested carve below keeps this image's region
+	 * cover consistent (no overlapping top level entries with separate
+	 * shadows), and the entry is still added to this image's table, behind
+	 * the enclosing one: the kernel hands out blocks of the application
+	 * heap itself, and its poison and unpoison must reach the nested
+	 * region's shadow, which the application image checks against.
+	 *
+	 * This image's own gate is not touched: it was armed by the first top
+	 * level registration already, or is held back under
+	 * CONFIG_MM_KASAN_START_MANUAL, and the consuming image arms its own
+	 * gate in kasan_import().
 	 */
 
 	for (i = 0; i < g_region_count; i++) {
 		if ((uintptr_t)addr < g_region[i]->end && g_region[i]->begin < (uintptr_t)addr + *size) {
+			FAR void *nested;
+
+			if ((uintptr_t)addr < g_region[i]->begin || g_region[i]->end < (uintptr_t)addr + *size) {
+				spin_unlock_irqrestore(&g_lock, flags);
+				kasan_alert("region %p size %zu overlaps the one at %p\n", addr, *size, (FAR void *)g_region[i]->begin);
+				return NULL;
+			}
+
+			nested = kasan_register_nested(addr, size);
 			spin_unlock_irqrestore(&g_lock, flags);
-			kasan_alert("region %p size %zu overlaps the one at %p\n", addr, *size, (FAR void *)g_region[i]->begin);
-			return;
+			return nested;
 		}
 	}
 
@@ -430,6 +529,70 @@ void kasan_register(FAR void *addr, FAR size_t *size)
 	 */
 
 	*size -= KASAN_REGION_SIZE(*size);
+
+	return (FAR void *)region;
+}
+
+/****************************************************************************
+ * Name: kasan_import
+ *
+ * Description:
+ *   Add an already registered region to this image's table. The descriptor
+ *   and its shadow were carved and initialized by the kernel memory
+ *   manager when it registered the heap; nothing is carved or poisoned
+ *   here. Both images keep pointing at the one descriptor, so the
+ *   poison and unpoison either side does lands in the same shadow.
+ *
+ *   The common case is the region already being in this image's table,
+ *   which is checked before the lock is taken: g_region[] only changes
+ *   at heap registration time, and a stale count read on another core
+ *   falls into the locked path below, which rechecks.
+ *
+ ****************************************************************************/
+
+void kasan_import(FAR void *desc)
+{
+	FAR struct kasan_region_s *region = (FAR struct kasan_region_s *)desc;
+	irqstate_t flags;
+	size_t i;
+
+	if (region == NULL) {
+		return;
+	}
+
+	for (i = 0; i < g_region_count; i++) {
+		if (g_region[i] == region || g_region[i]->begin == region->begin) {
+			return;
+		}
+	}
+
+	flags = spin_lock_irqsave(&g_lock);
+
+	for (i = 0; i < g_region_count; i++) {
+		if (g_region[i]->begin == region->begin) {
+			spin_unlock_irqrestore(&g_lock, flags);
+			return;
+		}
+	}
+
+	if (g_region_count >= CONFIG_MM_KASAN_REGIONS) {
+		spin_unlock_irqrestore(&g_lock, flags);
+		kasan_alert("no free region slot to import the one at %p, raise CONFIG_MM_KASAN_REGIONS above %d\n", (FAR void *)region->begin, CONFIG_MM_KASAN_REGIONS);
+		return;
+	}
+
+	g_region[g_region_count++] = region;
+
+	spin_unlock_irqrestore(&g_lock, flags);
+
+	/* The shadow is already correct: the kernel registered and maintains
+	 * it. Arming mirrors kasan_register(): hold back under
+	 * CONFIG_MM_KASAN_START_MANUAL.
+	 */
+
+#ifndef CONFIG_MM_KASAN_START_MANUAL
+	kasan_start();
+#endif
 }
 
 /****************************************************************************

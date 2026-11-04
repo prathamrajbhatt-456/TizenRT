@@ -404,6 +404,15 @@ struct mm_heap_s {
 
 	FAR struct mm_delaynode_s *mm_delaylist[CONFIG_SMP_NCPUS];
 
+	/* Descriptor of the KASan region that the kernel memory manager
+	 * registered for this heap. The heap structure lives in memory shared
+	 * with the user image, whose own KASan runtime imports the region from
+	 * here so that both images poison and unpoison the same shadow. NULL
+	 * when KASan is disabled or the region was not registered.
+	 */
+
+	FAR void *mm_kasan_region;
+
 };
 
 /****************************************************************************

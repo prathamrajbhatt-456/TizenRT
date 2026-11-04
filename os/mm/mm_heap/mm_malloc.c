@@ -154,6 +154,14 @@ FAR void *mm_malloc(FAR struct mm_heap_s *heap, size_t size, mmaddress_t caller_
 	size_t gc_before_size;
 #endif
 
+	/* Import the region that the kernel registered for this heap into
+	 * this image's KASan runtime, so that both images poison and unpoison
+	 * the one shared shadow. On the kernel side the region is already in
+	 * the table and the call does nothing.
+	 */
+
+	kasan_attach_heap(heap);
+
 	/* Free the delay list first */
 	mm_free_delaylist(heap);
 

@@ -123,6 +123,8 @@ FAR void *mm_memalign(FAR struct mm_heap_s *heap, size_t alignment, size_t size,
 	size_t gc_before_size;
 #endif
 
+	kasan_attach_heap(heap);
+
 	/* If this requested alinement's less than or equal to the natural alignment
 	 * of malloc, then just let malloc do the work.
 	 */

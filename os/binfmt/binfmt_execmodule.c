@@ -67,6 +67,7 @@
 #include <tinyara/kmalloc.h>
 #include <tinyara/binfmt/binfmt.h>
 #include <tinyara/mm/mm.h>
+#include <tinyara/mm/kasan.h>
 #if defined(CONFIG_APP_BINARY_SEPARATION) && defined(CONFIG_ARCH_USE_MMU)
 #include <tinyara/mmu.h>
 #endif
@@ -345,8 +346,24 @@ int exec_module(FAR struct binary_s *binp)
 	return (int)pid;
 
 errout_with_appheap:
+	/* The heap of the application was already initialized and its KASan
+	 * region registered, but the caller frees the partition holding both
+	 * the heap and the region descriptor. Drop the region entry now: a
+	 * stale descriptor would be dereferenced by every later instrumented
+	 * access and fault once the partition memory is gone.
+	 */
+
+	kasan_unregister((FAR void *)binp->uheap->mm_heapstart[0]);
 	mm_remove_app_heap_list(binp->uheap);
 errout_with_tcbinit:
+	if (ret < 0 && binp->uheap != NULL) {
+		/* Reached here from task_activate() failure (or falling through
+		 * from errout_with_appheap, where this is a harmless no-op): the
+		 * heap exists and its KASan region must not outlive the partition.
+		 */
+
+		kasan_unregister((FAR void *)binp->uheap->mm_heapstart[0]);
+	}
 	if (newtcb != NULL) {
 #ifdef CONFIG_BINARY_MANAGER
 		BIN_ID(binary_idx) = -1;
@@ -360,6 +377,11 @@ errout_with_tcbinit:
 	return ret;
 
 errout_with_stack:
+	/* Same as errout_with_appheap: the KASan region must not outlive the
+	 * partition, which the caller frees when exec fails here.
+	 */
+
+	kasan_unregister((FAR void *)binp->uheap->mm_heapstart[0]);
 	kumm_free(stack);
 	kmm_free(newtcb);
 	return ret;

@@ -69,6 +69,7 @@
 #include <debug.h>
 
 #include <tinyara/mm/kasan.h>
+#include <tinyara/mm/mm.h>
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -88,6 +89,36 @@
 
 #define kasan_alert(format, ...)	\
 	lowsyslog(LOG_ERR, "KASAN: " format, ##__VA_ARGS__)
+
+/* Reports raised from instrumented code must reach the console in every
+ * image, but the right channel differs between them and the discriminator
+ * is the same one lib_lowoutstream.c uses:
+ *
+ *  - Kernel image (__KERNEL__): lowsyslog() wraps up_putc() — direct UART,
+ *    no buffering, no semaphores, safe from interrupt handlers. dbg() would
+ *    go through syslog() -> the buffered stdout FILE, and taking its
+ *    semaphore from an interrupt handler asserts in sem_wait().
+ *  - User image (protected build, no __KERNEL__): lowoutstream_putc()
+ *    compiles to nothing, so lowsyslog() prints nothing at all — user-image
+ *    reports were invisible on this channel. dbg() -> syslog() writes
+ *    through the line-buffered stdout device, which flushes on the '\n'
+ *    that terminates every report line. User-image code only ever runs in
+ *    task context, so the semaphore use is safe there.
+ *
+ * Allocator-side warnings keep kasan_alert() (lowsyslog): they can be
+ * raised from interrupt context in the kernel image via the deferred free
+ * list, and they never need the user-image channel.
+ */
+
+#if defined(CONFIG_BUILD_PROTECTED) && !defined(__KERNEL__)
+#define kasan_report_alert(format, ...)	\
+	dbg("KASAN: " format, ##__VA_ARGS__)
+#else
+#define kasan_report_alert(format, ...)	\
+	lowsyslog(LOG_ERR, "KASAN: " format, ##__VA_ARGS__)
+#endif
+
+
 
 /* TizenRT has no predict_false(). Note that inline_function in TizenRT is a
  * bare attribute rather than a full storage class as it is upstream, so it
@@ -112,6 +143,28 @@
 
 #define kasan_mem_to_shadow(addr, size, bit)	((void)(bit), NULL)
 #endif
+
+/****************************************************************************
+ * Name: kasan_attach_heap
+ *
+ * Description:
+ *   Import into this image's region table the region that the kernel
+ *   memory manager registered for this heap and recorded in the heap
+ *   structure. See kasan.h. With no shadow mode there is no table to
+ *   import into and the call does nothing.
+ *
+ ****************************************************************************/
+
+void kasan_attach_heap(FAR struct mm_heap_s *heap)
+{
+#ifdef CONFIG_MM_KASAN_GENERIC
+	if (heap != NULL) {
+		kasan_import(heap->mm_kasan_region);
+	}
+#else
+	(void)heap;
+#endif
+}
 
 #define KASAN_INIT_VALUE		0xcafe
 
@@ -229,7 +282,7 @@ static void kasan_show_memory(FAR const uint8_t *addr, size_t size)
 		start = NULL;
 	}
 
-	kasan_alert("memory around the faulty address:\n");
+	kasan_report_alert("memory around the faulty address:\n");
 
 	for (p = start; p < start + 2 * KASAN_DUMP_BYTES; p += KASAN_DUMP_PER_LINE) {
 		n = 0;
@@ -255,7 +308,7 @@ static void kasan_show_memory(FAR const uint8_t *addr, size_t size)
 		}
 
 		buffer[n] = '\0';
-		kasan_alert("%p:%s\n", p, buffer);
+		kasan_report_alert("%p:%s\n", p, buffer);
 	}
 }
 
@@ -278,8 +331,8 @@ static void kasan_report(FAR const void *addr, size_t size, bool is_write, FAR v
 
 	kasan_stop();
 
-	kasan_alert("invalid %s of size %zu at address %p\n", is_write ? "write" : "read", size, addr);
-	kasan_alert("detected from %p\n", return_address);
+	kasan_report_alert("invalid %s of size %zu at address %p\n", is_write ? "write" : "read", size, addr);
+	kasan_report_alert("detected from %p\n", return_address);
 
 	kasan_show_memory(addr, size);
 
@@ -297,8 +350,13 @@ static void kasan_report(FAR const void *addr, size_t size, bool is_write, FAR v
 
 		kasan_start();
 	} else {
-		lldbg("COMMENTED OUT PANIC\n");
-		//PANIC();
+		/* The panic this branch used to take is disabled in the ported
+		 * configuration. Say so on the report channel rather than with a
+		 * bare lldbg(): a user image detection printed through the wrong
+		 * channel and never reached the console.
+		 */
+
+		kasan_report_alert("panic disabled, continuing execution\n");
 
 		/* Resume checking since we're continuing execution.
 		 * Without this, reporting stays off after the first detection.

@@ -283,5 +283,11 @@ void mm_free_withinfo(FAR struct mm_heap_s *heap, FAR void *mem, mmaddress_t fre
  ****************************************************************************/
 void mm_free(FAR struct mm_heap_s *heap, FAR void *mem)
 {
+	/* Import the region that the kernel registered for this heap into
+	 * this image's KASan runtime. See mm_malloc() for why.
+	 */
+
+	kasan_attach_heap(heap);
+
 	mm_free_internal(heap, mem, __builtin_return_address(0), getpid());
 }
