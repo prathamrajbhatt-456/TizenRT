@@ -300,9 +300,13 @@ char *tash_read_input_line(int fd)
 #if !defined(CONFIG_DISABLE_POLL)
 		}
 #endif
-	} while (PREV_CHAR != ASCII_LF);
-    shdbg("TASH: ENTERED WHILE LOOP\n");
-	PREV_CHAR = ASCII_NUL;
+} while (pos == 0 || PREV_CHAR != ASCII_LF);
+
+	/* Replace newline with null terminator, if we read anything */
+	if (pos > 0) {
+		buffer[pos - 1] = ASCII_NUL;
+	}
+
 	return buffer;
 }
 
